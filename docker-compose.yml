@@ -1,0 +1,148 @@
+# ==============================================================================
+# HealthAI Infrastructure — Docker Compose (production-ready)
+#
+# Images are pulled from GitHub Container Registry (ghcr.io).
+# All secrets must be provided via a .env file (see .env.example).
+# ==============================================================================
+
+name: healthai
+
+services:
+
+  # ----------------------------------------------------------------------------
+  # PostgreSQL — backend database used by ZITADEL
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: zitadel
+      POSTGRES_USER: zitadel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zitadel -d zitadel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # ZITADEL init — runs DB migrations / schema initialisation then exits
+  # ----------------------------------------------------------------------------
+  zitadel-init:
+    image: ghcr.io/zitadel/zitadel:latest
+    restart: on-failure
+    command: init
+    environment:
+      ZITADEL_DATABASE_POSTGRES_HOST: postgres
+      ZITADEL_DATABASE_POSTGRES_PORT: 5432
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${POSTGRES_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${POSTGRES_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ----------------------------------------------------------------------------
+  # ZITADEL — identity & access management (users + M2M)
+  # ----------------------------------------------------------------------------
+  zitadel:
+    image: ghcr.io/zitadel/zitadel:latest
+    restart: unless-stopped
+    command: start-from-init --masterkey "${ZITADEL_MASTERKEY}" --tlsMode disabled
+    environment:
+      ZITADEL_DATABASE_POSTGRES_HOST: postgres
+      ZITADEL_DATABASE_POSTGRES_PORT: 5432
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${POSTGRES_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: zitadel
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${POSTGRES_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      ZITADEL_EXTERNALSECURE: "false"
+      ZITADEL_EXTERNALPORT: 8080
+    ports:
+      - "8080:8080"
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      zitadel-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  # ----------------------------------------------------------------------------
+  # healthai-api — backend REST API
+  # ----------------------------------------------------------------------------
+  healthai-api:
+    image: ghcr.io/healthai-corpo/healthai-api:${API_TAG}
+    restart: unless-stopped
+    environment:
+      ZITADEL_ISSUER: http://zitadel:8080
+    ports:
+      - "5000:5000"
+    networks:
+      - internal
+    depends_on:
+      zitadel:
+        condition: service_healthy
+
+  # ----------------------------------------------------------------------------
+  # healthai-etl — background ETL pipeline (no exposed port)
+  # ----------------------------------------------------------------------------
+  healthai-etl:
+    image: ghcr.io/healthai-corpo/healthai-etl:${ETL_TAG}
+    restart: unless-stopped
+    environment:
+      ZITADEL_ISSUER: http://zitadel:8080
+      ETL_CLIENT_ID: ${ETL_CLIENT_ID}
+      ETL_CLIENT_SECRET: ${ETL_CLIENT_SECRET}
+    networks:
+      - internal
+    depends_on:
+      zitadel:
+        condition: service_healthy
+
+  # ----------------------------------------------------------------------------
+  # healthai-web — frontend web application
+  # ----------------------------------------------------------------------------
+  healthai-web:
+    image: ghcr.io/healthai-corpo/healthai-web:${WEB_TAG}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://healthai-api:5000
+      NEXT_PUBLIC_ZITADEL_ISSUER: http://zitadel:8080
+    ports:
+      - "3000:3000"
+    networks:
+      - internal
+    depends_on:
+      - healthai-api
+
+# ==============================================================================
+# Volumes
+# ==============================================================================
+volumes:
+  postgres_data:
+
+# ==============================================================================
+# Networks
+# ==============================================================================
+networks:
+  internal:
+    driver: bridge

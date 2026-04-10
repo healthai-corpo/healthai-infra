@@ -1,0 +1,8 @@
+# Environment secrets — never commit the real .env
+.env
+
+# Editor and OS artifacts
+.DS_Store
+.idea/
+*.swp
+*.swo
