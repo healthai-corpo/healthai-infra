@@ -93,7 +93,10 @@ services:
     image: ghcr.io/healthai-corpo/healthai-api:${API_TAG:-latest}
     restart: unless-stopped
     environment:
+      NODE_ENV: production
+      PORT: 5000
       ZITADEL_ISSUER: http://zitadel:8080
+      FRONTEND_ORIGIN: ${PUBLIC_API_URL:-http://localhost:5000}
     ports:
       - "5000:5000"
     networks:
@@ -101,6 +104,11 @@ services:
     depends_on:
       zitadel:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
 
   # ----------------------------------------------------------------------------
   # healthai-etl — background ETL pipeline (no exposed port)
@@ -109,39 +117,60 @@ services:
     image: ghcr.io/healthai-corpo/healthai-etl:${ETL_TAG:-latest}
     restart: unless-stopped
     environment:
+      DATABASE_URL: postgresql://healthai:${ETL_DB_PASSWORD:-healthai}@postgres:5432/healthai
       ZITADEL_ISSUER: http://zitadel:8080
       ETL_CLIENT_ID: ${ETL_CLIENT_ID}
       ETL_CLIENT_SECRET: ${ETL_CLIENT_SECRET}
+      DATA_DIR: /data
+      EXERCISE_DB_API_KEY: ${EXERCISE_DB_API_KEY:-}
     networks:
       - internal
+    volumes:
+      - etl_data:/data
     depends_on:
       zitadel:
         condition: service_healthy
 
   # ----------------------------------------------------------------------------
-  # healthai-web — frontend web application
+  # healthai-web — frontend UI
   # ----------------------------------------------------------------------------
   healthai-web:
     image: ghcr.io/healthai-corpo/healthai-web:${WEB_TAG:-latest}
     restart: unless-stopped
-    environment:
-      # Internal URL used for server-side rendering / API routes (server → server)
-      API_URL: http://healthai-api:5000
-      # Public URLs baked into the browser bundle — must be externally reachable
-      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:5000}
-      NEXT_PUBLIC_ZITADEL_ISSUER: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
     ports:
       - "3000:3000"
     networks:
       - internal
+    environment:
+      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:5000}
+      NEXT_PUBLIC_ZITADEL_URL: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
     depends_on:
-      - healthai-api
+      healthai-api:
+        condition: service_healthy
+
+  # ----------------------------------------------------------------------------
+  # healthai-admin — administrative UI
+  # ----------------------------------------------------------------------------
+  healthai-admin:
+    image: ghcr.io/healthai-corpo/healthai-admin:latest
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:5000}
+      NEXT_PUBLIC_ZITADEL_URL: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
+    networks:
+      - internal
+    depends_on:
+      healthai-api:
+        condition: service_healthy
 
 # ==============================================================================
 # Volumes
 # ==============================================================================
 volumes:
   postgres_data:
+  etl_data:
 
 # ==============================================================================
 # Networks
