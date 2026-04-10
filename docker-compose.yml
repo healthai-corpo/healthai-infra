@@ -10,17 +10,17 @@ name: healthai
 services:
 
   # ----------------------------------------------------------------------------
-  # PostgreSQL — backend database used by ZITADEL
+  # PostgreSQL — base ZITADEL (IAM)
   # ----------------------------------------------------------------------------
-  postgres:
+  postgres-zitadel:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: zitadel
       POSTGRES_USER: zitadel
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_ZITADEL_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_zitadel_data:/var/lib/postgresql/data
     networks:
       - internal
     healthcheck:
@@ -37,19 +37,19 @@ services:
     restart: on-failure
     command: init
     environment:
-      ZITADEL_DATABASE_POSTGRES_HOST: postgres
+      ZITADEL_DATABASE_POSTGRES_HOST: postgres-zitadel
       ZITADEL_DATABASE_POSTGRES_PORT: 5432
       ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
       ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
-      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${POSTGRES_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${POSTGRES_ZITADEL_PASSWORD}
       ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
       ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: zitadel
-      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${POSTGRES_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${POSTGRES_ZITADEL_PASSWORD}
       ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
     networks:
       - internal
     depends_on:
-      postgres:
+      postgres-zitadel:
         condition: service_healthy
 
   # ----------------------------------------------------------------------------
@@ -60,23 +60,24 @@ services:
     restart: unless-stopped
     command: start-from-init --masterkey "${ZITADEL_MASTERKEY}" --tlsMode disabled
     environment:
-      ZITADEL_DATABASE_POSTGRES_HOST: postgres
+      ZITADEL_DATABASE_POSTGRES_HOST: postgres-zitadel
       ZITADEL_DATABASE_POSTGRES_PORT: 5432
       ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
       ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
-      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${POSTGRES_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: ${POSTGRES_ZITADEL_PASSWORD}
       ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
       ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: zitadel
-      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${POSTGRES_PASSWORD}
+      ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: ${POSTGRES_ZITADEL_PASSWORD}
       ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
       ZITADEL_EXTERNALSECURE: "false"
       ZITADEL_EXTERNALPORT: 8080
+      ZITADEL_EXTERNALHOST: ${ZITADEL_HOST:-localhost}
     ports:
       - "8080:8080"
     networks:
       - internal
     depends_on:
-      postgres:
+      postgres-zitadel:
         condition: service_healthy
       zitadel-init:
         condition: service_completed_successfully
@@ -87,61 +88,144 @@ services:
       retries: 10
 
   # ----------------------------------------------------------------------------
+  # PostgreSQL — base applicative HealthAI
+  # ----------------------------------------------------------------------------
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-healthai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-healthai_db}
+    volumes:
+      - postgres_app_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01_init.sql
+      - ./db/seeds.sql:/docker-entrypoint-initdb.d/02_seeds.sql
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-healthai} -d ${POSTGRES_DB:-healthai_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
   # healthai-api — backend REST API
   # ----------------------------------------------------------------------------
   healthai-api:
     image: ghcr.io/healthai-corpo/healthai-api:${API_TAG:-latest}
     restart: unless-stopped
     environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}
       ZITADEL_ISSUER: http://zitadel:8080
-    ports:
-      - "5000:5000"
+      ZITADEL_JWKS_URI: http://zitadel:8080/oauth/v2/keys
+      NODE_ENV: production
+      PORT: 3001
+      TYPEORM_RUN_MIGRATIONS: "false"
     networks:
       - internal
     depends_on:
+      db:
+        condition: service_healthy
       zitadel:
         condition: service_healthy
 
   # ----------------------------------------------------------------------------
-  # healthai-etl — background ETL pipeline (no exposed port)
+  # healthai-etl — pipeline ETL + endpoint upload
   # ----------------------------------------------------------------------------
   healthai-etl:
     image: ghcr.io/healthai-corpo/healthai-etl:${ETL_TAG:-latest}
     restart: unless-stopped
     environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}
       ZITADEL_ISSUER: http://zitadel:8080
       ETL_CLIENT_ID: ${ETL_CLIENT_ID}
       ETL_CLIENT_SECRET: ${ETL_CLIENT_SECRET}
+    volumes:
+      - etl_data:/app/data
+      - etl_logs:/app/logs
     networks:
       - internal
     depends_on:
+      db:
+        condition: service_healthy
       zitadel:
         condition: service_healthy
 
   # ----------------------------------------------------------------------------
-  # healthai-web — frontend web application
+  # healthai-admin — dashboard CRUD (interne équipe)
   # ----------------------------------------------------------------------------
-  healthai-web:
-    image: ghcr.io/healthai-corpo/healthai-web:${WEB_TAG:-latest}
+  healthai-admin:
+    image: ghcr.io/healthai-corpo/healthai-admin:${ADMIN_TAG:-latest}
     restart: unless-stopped
     environment:
-      # Internal URL used for server-side rendering / API routes (server → server)
-      API_URL: http://healthai-api:5000
-      # Public URLs baked into the browser bundle — must be externally reachable
-      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:5000}
+      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3001}
       NEXT_PUBLIC_ZITADEL_ISSUER: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
-    ports:
-      - "3000:3000"
+      NEXT_PUBLIC_ETL_URL: ${PUBLIC_ETL_URL:-http://localhost:8000}
+      NODE_ENV: production
     networks:
       - internal
     depends_on:
       - healthai-api
 
+  # ----------------------------------------------------------------------------
+  # healthai-web — portail client (M3+)
+  # ----------------------------------------------------------------------------
+  healthai-web:
+    image: ghcr.io/healthai-corpo/healthai-web:${WEB_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3001}
+      NEXT_PUBLIC_ZITADEL_ISSUER: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
+      NODE_ENV: production
+    networks:
+      - internal
+    depends_on:
+      - healthai-api
+
+  # ----------------------------------------------------------------------------
+  # Metabase — dashboards analytics connecté à healthai_db
+  # ----------------------------------------------------------------------------
+  metabase:
+    image: metabase/metabase:latest
+    restart: unless-stopped
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: db
+      MB_DB_PORT: 5432
+      MB_DB_DBNAME: ${POSTGRES_DB:-healthai_db}
+      MB_DB_USER: ${POSTGRES_USER:-healthai}
+      MB_DB_PASS: ${POSTGRES_PASSWORD}
+    ports:
+      - "3002:3000"
+    networks:
+      - internal
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ----------------------------------------------------------------------------
+  # Adminer — inspection DB (dev / démo)
+  # ----------------------------------------------------------------------------
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    networks:
+      - internal
+    depends_on:
+      db:
+        condition: service_healthy
+
 # ==============================================================================
 # Volumes
 # ==============================================================================
 volumes:
-  postgres_data:
+  postgres_zitadel_data:
+  postgres_app_data:
+  etl_data:
+  etl_logs:
 
 # ==============================================================================
 # Networks
