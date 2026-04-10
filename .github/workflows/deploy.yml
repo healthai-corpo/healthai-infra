@@ -1,0 +1,57 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Pull & restart stack
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull latest images
+        run: docker compose -f docker-compose.yml pull
+
+      - name: Run migrations
+        run: |
+          docker compose -f docker-compose.yml run --rm db-migrator
+        env:
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_ZITADEL_PASSWORD: ${{ secrets.POSTGRES_ZITADEL_PASSWORD }}
+          ZITADEL_MASTERKEY: ${{ secrets.ZITADEL_MASTERKEY }}
+          ETL_CLIENT_ID: ${{ secrets.ETL_CLIENT_ID }}
+          ETL_CLIENT_SECRET: ${{ secrets.ETL_CLIENT_SECRET }}
+
+      - name: Restart services
+        run: docker compose -f docker-compose.yml up -d
+        env:
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_ZITADEL_PASSWORD: ${{ secrets.POSTGRES_ZITADEL_PASSWORD }}
+          ZITADEL_MASTERKEY: ${{ secrets.ZITADEL_MASTERKEY }}
+          ZITADEL_HOST: ${{ secrets.ZITADEL_HOST }}
+          PUBLIC_API_URL: ${{ secrets.PUBLIC_API_URL }}
+          PUBLIC_ZITADEL_URL: ${{ secrets.PUBLIC_ZITADEL_URL }}
+          PUBLIC_ETL_URL: ${{ secrets.PUBLIC_ETL_URL }}
+          ETL_CLIENT_ID: ${{ secrets.ETL_CLIENT_ID }}
+          ETL_CLIENT_SECRET: ${{ secrets.ETL_CLIENT_SECRET }}
+          API_TAG: ${{ github.sha }}
+          ETL_TAG: ${{ github.sha }}
+          ADMIN_TAG: ${{ github.sha }}
+          WEB_TAG: ${{ github.sha }}

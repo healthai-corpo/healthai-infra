@@ -2,19 +2,29 @@
 # ==============================================================================
 # Caddy reverse proxy configuration
 #
-# Caddy automatically provisions TLS certificates via Let's Encrypt.
-# Replace the hostnames below with your actual domain names.
-# For local development, use http:// instead of a domain name.
+# Caddy provisionne automatiquement les certificats TLS via Let's Encrypt.
+# Remplacer les hostnames ci-dessous par tes vrais noms de domaine.
+# Pour le dev local, utiliser http:// sans nom de domaine.
 # ==============================================================================
 
-# Frontend — healthai-web
+# Dashboard admin CRUD — healthai-admin
+admin.example.com {
+    reverse_proxy healthai-admin:3000
+}
+
+# Portail client — healthai-web (M3+)
 app.example.com {
     reverse_proxy healthai-web:3000
 }
 
 # Backend API — healthai-api
 api.example.com {
-    reverse_proxy healthai-api:5000
+    reverse_proxy healthai-api:3001
+}
+
+# ETL upload endpoint — healthai-etl
+etl.example.com {
+    reverse_proxy healthai-etl:8000
 }
 
 # Identity provider — ZITADEL

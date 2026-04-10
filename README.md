@@ -1,138 +1,148 @@
 # healthai-infra
 
-Central orchestration repository for the HealthAI microservices platform.  
-All service images are built in their own CI pipelines and pushed to the GitHub Container Registry (`ghcr.io`). This repository pulls those images and wires everything together with Docker Compose.
+Dépôt d'orchestration central pour la plateforme HealthAI.  
+Les images sont buildées dans leurs propres pipelines CI et publiées sur GitHub Container Registry (`ghcr.io`). Ce dépôt les assemble via Docker Compose et **centralise la gestion du schéma de base de données**.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                       Docker network: internal              │
-│                                                             │
-│  healthai-web (:3000) ──► healthai-api (:5000)              │
-│                                   │                         │
-│                            zitadel (:8080)                  │
-│                                   │                         │
-│                           postgres (internal)               │
-│                                                             │
-│  healthai-etl (no port) ──► zitadel (M2M)                   │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Docker network: internal                     │
+│                                                                     │
+│  healthai-admin (:3000) ──►                                         │
+│                              healthai-api (:3001)  ──► db (:5432)  │
+│  healthai-web   (:3000) ──►      │                      ▲           │
+│                              zitadel (:8080)       db-migrator      │
+│                                  │                                  │
+│                          postgres-zitadel (internal)                │
+│                                                                     │
+│  healthai-etl (no port) ──► db + zitadel M2M                        │
+│  metabase      (:3002)  ──► db                                      │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-| Service         | Image                                      | Port  | Description                        |
-|-----------------|--------------------------------------------|-------|------------------------------------|
-| `postgres`      | `postgres:16-alpine`                       | —     | Database for ZITADEL               |
-| `zitadel-init`  | `ghcr.io/zitadel/zitadel:latest`           | —     | One-shot DB schema init            |
-| `zitadel`       | `ghcr.io/zitadel/zitadel:latest`           | 8080  | Identity & access management       |
-| `healthai-api`  | `ghcr.io/healthai-corpo/healthai-api`      | 5000  | Backend REST API                   |
-| `healthai-etl`  | `ghcr.io/healthai-corpo/healthai-etl`      | —     | Background ETL pipeline            |
-| `healthai-web`  | `ghcr.io/healthai-corpo/healthai-web`      | 3000  | Frontend web application           |
+| Service              | Image                                       | Port  | Description                        |
+|----------------------|---------------------------------------------|-------|------------------------------------|
+| `postgres-zitadel`   | `postgres:16-alpine`                        | —     | Base ZITADEL (IAM)                 |
+| `zitadel-init`       | `ghcr.io/zitadel/zitadel:latest`            | —     | Init schéma ZITADEL (one-shot)     |
+| `zitadel`            | `ghcr.io/zitadel/zitadel:latest`            | 8080  | Identity & access management       |
+| `db`                 | `postgres:15-alpine`                        | —     | Base applicative HealthAI          |
+| `db-migrator`        | `migrate/migrate:latest`                    | —     | Migrations SQL (one-shot)          |
+| `healthai-api`       | `ghcr.io/healthai-corpo/healthai-api`       | 3001  | Backend REST API                   |
+| `healthai-etl`       | `ghcr.io/healthai-corpo/healthai-etl`       | —     | Pipeline ETL + endpoint upload     |
+| `healthai-admin`     | `ghcr.io/healthai-corpo/healthai-admin`     | 3000  | Dashboard CRUD (interne)           |
+| `healthai-web`       | `ghcr.io/healthai-corpo/healthai-web`       | 3000  | Portail client (M3+)               |
+| `metabase`           | `metabase/metabase:latest`                  | 3002  | Dashboards analytics               |
+| `adminer`            | `adminer:latest`                            | 8081  | Inspection DB (dev/démo)           |
 
 ---
 
-## Prerequisites
+## Gestion du schéma de base de données
 
-- [Docker](https://docs.docker.com/get-docker/) ≥ 24 with the Compose plugin
-- Access to `ghcr.io/healthai-corpo/*` images (authenticate with `docker login ghcr.io`)
+**Ce dépôt est l'unique source de vérité pour le schéma.**  
+Ni TypeORM ni Alembic ne créent ou modifient les tables — ils sont en lecture seule.
+
+Les migrations sont gérées par [golang-migrate](https://github.com/golang-migrate/migrate) via des fichiers SQL versionnés :
+
+```
+db/migrations/
+├── 000001_initial.up.sql     ← schéma complet (21 tables)
+├── 000001_initial.down.sql   ← rollback complet
+├── 000002_seeds.up.sql       ← données de démo
+└── 000002_seeds.down.sql     ← rollback seeds
+```
+
+### Ajouter une migration
+
+```bash
+# 1. Créer les fichiers (incrémenter le numéro)
+touch db/migrations/000003_description.up.sql
+touch db/migrations/000003_description.down.sql
+
+# 2. Écrire le SQL dans chaque fichier
+
+# 3. PR sur healthai-infra → branche feat/migration-description
+# 4. Après merge : PR sur healthai-etl (models.py) + healthai-api (entités)
+```
 
 ---
 
-## Quick start
+## Démarrage rapide
 
-### 1. Clone and configure
+### 1. Cloner et configurer
 
 ```bash
 git clone https://github.com/HealthAI-Corpo/healthai-infra.git
 cd healthai-infra
 cp .env.example .env
+# Remplir toutes les valeurs dans .env
 ```
 
-Open `.env` and fill in every value (see [Environment variables](#environment-variables) below).
-
-### 2. Deploy
+### 2. Déployer (images GHCR)
 
 ```bash
 ./scripts/deploy.sh
-```
-
-Or manually:
-
-```bash
+# ou manuellement :
 docker compose pull
 docker compose up -d
 ```
 
-### 3. Verify
+### 3. Développement local (build depuis les sources)
 
 ```bash
-docker compose ps
-docker compose logs -f
+cp docker-compose.override.yml.example docker-compose.override.yml
+# Les repos doivent être clonés dans le dossier parent :
+#   ../healthai-api/  ../healthai-admin/  ../healthai-etl/
+docker compose up --build -d
 ```
 
 ---
 
-## Environment variables
+## Variables d'environnement
 
-Copy `.env.example` to `.env` and set the following:
-
-| Variable              | Description                                                                   | Example / how to generate          |
-|-----------------------|-------------------------------------------------------------------------------|------------------------------------|
-| `API_TAG`             | Image tag for `healthai-api`                                                  | `1.2.3` or `latest`               |
-| `ETL_TAG`             | Image tag for `healthai-etl`                                                  | `1.2.3` or `latest`               |
-| `WEB_TAG`             | Image tag for `healthai-web`                                                  | `1.2.3` or `latest`               |
-| `POSTGRES_PASSWORD`   | Password for the PostgreSQL `zitadel` user                                    | `openssl rand -base64 32`          |
-| `ZITADEL_MASTERKEY`   | Master key (≥ 32 chars) used by ZITADEL to encrypt sensitive data             | `openssl rand -base64 32`          |
-| `PUBLIC_API_URL`      | Publicly reachable URL of the API (used by the browser)                       | `https://api.example.com`          |
-| `PUBLIC_ZITADEL_URL`  | Publicly reachable URL of ZITADEL (used by the browser)                       | `https://auth.example.com`         |
-| `ETL_CLIENT_ID`       | OAuth2 client ID for the ETL service account (M2M)                            | Created in the ZITADEL console     |
-| `ETL_CLIENT_SECRET`   | OAuth2 client secret for the ETL service account (M2M)                        | Created in the ZITADEL console     |
-
-### Generate a secure master key
-
-```bash
-openssl rand -base64 32
-```
-
-`openssl rand -base64 32` outputs **44 printable characters** encoding 32 bytes of random data. ZITADEL requires at least 32 characters, so this output satisfies the requirement.
-
-> ⚠️ **Never commit your `.env` file.** It is already listed in `.gitignore`.
+| Variable                  | Description                                          | Générer avec                  |
+|---------------------------|------------------------------------------------------|-------------------------------|
+| `POSTGRES_ZITADEL_PASSWORD` | Mot de passe PostgreSQL ZITADEL                    | `openssl rand -base64 32`     |
+| `ZITADEL_MASTERKEY`       | Clé maître ZITADEL (≥ 32 chars)                      | `openssl rand -base64 32`     |
+| `ZITADEL_HOST`            | Host public ZITADEL (`localhost` en dev)             | —                             |
+| `POSTGRES_USER`           | User PostgreSQL app (défaut : `healthai`)            | —                             |
+| `POSTGRES_PASSWORD`       | Mot de passe PostgreSQL app                          | `openssl rand -base64 32`     |
+| `POSTGRES_DB`             | Nom de la base app (défaut : `healthai_db`)          | —                             |
+| `PUBLIC_API_URL`          | URL publique de l'API (navigateur)                   | `https://api.example.com`     |
+| `PUBLIC_ZITADEL_URL`      | URL publique ZITADEL (navigateur)                    | `https://auth.example.com`    |
+| `PUBLIC_ETL_URL`          | URL publique ETL (navigateur)                        | `https://etl.example.com`     |
+| `ETL_CLIENT_ID`           | Client ID M2M ZITADEL pour l'ETL                     | Console ZITADEL               |
+| `ETL_CLIENT_SECRET`       | Client secret M2M ZITADEL pour l'ETL                 | Console ZITADEL               |
+| `API_TAG` / `ETL_TAG` / `ADMIN_TAG` / `WEB_TAG` | Tags des images GHCR       | `latest` ou SHA de commit     |
 
 ---
 
 ## Reverse proxy (Caddy)
 
-A sample `Caddyfile` is provided in `reverse-proxy/`. Edit the domain names to match your setup. Caddy handles TLS automatically via Let's Encrypt when deployed with a real domain.
+Un `Caddyfile` est fourni dans `reverse-proxy/`. Caddy gère le TLS automatiquement via Let's Encrypt en production.
 
 ---
 
-## Repository structure
+## Structure du dépôt
 
 ```
 healthai-infra/
-├── docker-compose.yml      # Main Compose file
-├── .env.example            # Template for environment variables
-├── README.md               # This file
+├── docker-compose.yml                  # Compose principal
+├── docker-compose.override.yml.example # Template dev local
+├── .env.example                        # Template variables
+├── .gitignore
+├── db/
+│   ├── init.sql                        # Référence lisible (non monté)
+│   ├── seeds.sql                       # Référence lisible (non montée)
+│   └── migrations/                     # ← Migrations actives
+│       ├── 000001_initial.up.sql
+│       ├── 000001_initial.down.sql
+│       ├── 000002_seeds.up.sql
+│       └── 000002_seeds.down.sql
 ├── reverse-proxy/
-│   └── Caddyfile           # Caddy reverse proxy configuration
+│   └── Caddyfile
 └── scripts/
-    └── deploy.sh           # Pull images and restart services
+    └── deploy.sh
 ```
-
----
-
-## Updating a service
-
-To roll out a new version of a single service, update its tag in `.env` and re-run the deploy script:
-
-```bash
-# Edit .env: set API_TAG=1.3.0
-./scripts/deploy.sh
-```
-
----
-
-## License
-
-See individual service repositories for licensing information.
