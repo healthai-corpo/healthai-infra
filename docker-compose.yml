@@ -99,8 +99,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-healthai_db}
     volumes:
       - postgres_app_data:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/01_init.sql
-      - ./db/seeds.sql:/docker-entrypoint-initdb.d/02_seeds.sql
     networks:
       - internal
     healthcheck:
@@ -108,6 +106,26 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # ----------------------------------------------------------------------------
+  # db-migrator — applique les migrations SQL via golang-migrate
+  # Tourne une fois au démarrage puis s'arrête (restart: on-failure)
+  # Ajouter une nouvelle migration : db/migrations/00000X_description.{up,down}.sql
+  # ----------------------------------------------------------------------------
+  db-migrator:
+    image: migrate/migrate:latest
+    restart: on-failure
+    command:
+      - "-path=/migrations"
+      - "-database=postgresql://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}?sslmode=disable"
+      - "up"
+    volumes:
+      - ./db/migrations:/migrations:ro
+    networks:
+      - internal
+    depends_on:
+      db:
+        condition: service_healthy
 
   # ----------------------------------------------------------------------------
   # healthai-api — backend REST API
@@ -125,8 +143,8 @@ services:
     networks:
       - internal
     depends_on:
-      db:
-        condition: service_healthy
+      db-migrator:
+        condition: service_completed_successfully
       zitadel:
         condition: service_healthy
 
@@ -147,8 +165,8 @@ services:
     networks:
       - internal
     depends_on:
-      db:
-        condition: service_healthy
+      db-migrator:
+        condition: service_completed_successfully
       zitadel:
         condition: service_healthy
 
