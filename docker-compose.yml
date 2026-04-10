@@ -90,7 +90,7 @@ services:
   # healthai-api — backend REST API
   # ----------------------------------------------------------------------------
   healthai-api:
-    image: ghcr.io/healthai-corpo/healthai-api:${API_TAG}
+    image: ghcr.io/healthai-corpo/healthai-api:${API_TAG:-latest}
     restart: unless-stopped
     environment:
       ZITADEL_ISSUER: http://zitadel:8080
@@ -106,7 +106,7 @@ services:
   # healthai-etl — background ETL pipeline (no exposed port)
   # ----------------------------------------------------------------------------
   healthai-etl:
-    image: ghcr.io/healthai-corpo/healthai-etl:${ETL_TAG}
+    image: ghcr.io/healthai-corpo/healthai-etl:${ETL_TAG:-latest}
     restart: unless-stopped
     environment:
       ZITADEL_ISSUER: http://zitadel:8080
@@ -122,11 +122,14 @@ services:
   # healthai-web — frontend web application
   # ----------------------------------------------------------------------------
   healthai-web:
-    image: ghcr.io/healthai-corpo/healthai-web:${WEB_TAG}
+    image: ghcr.io/healthai-corpo/healthai-web:${WEB_TAG:-latest}
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: http://healthai-api:5000
-      NEXT_PUBLIC_ZITADEL_ISSUER: http://zitadel:8080
+      # Internal URL used for server-side rendering / API routes (server → server)
+      API_URL: http://healthai-api:5000
+      # Public URLs baked into the browser bundle — must be externally reachable
+      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:5000}
+      NEXT_PUBLIC_ZITADEL_ISSUER: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
     ports:
       - "3000:3000"
     networks:

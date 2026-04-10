@@ -77,21 +77,25 @@ docker compose logs -f
 
 Copy `.env.example` to `.env` and set the following:
 
-| Variable            | Description                                                   | Example / how to generate          |
-|---------------------|---------------------------------------------------------------|------------------------------------|
-| `API_TAG`           | Image tag for `healthai-api`                                  | `1.2.3` or `latest`               |
-| `ETL_TAG`           | Image tag for `healthai-etl`                                  | `1.2.3` or `latest`               |
-| `WEB_TAG`           | Image tag for `healthai-web`                                  | `1.2.3` or `latest`               |
-| `POSTGRES_PASSWORD` | Password for the PostgreSQL `zitadel` user                    | `openssl rand -base64 32`          |
-| `ZITADEL_MASTERKEY` | 32-byte master key used by ZITADEL to encrypt sensitive data  | `openssl rand -base64 32`          |
-| `ETL_CLIENT_ID`     | OAuth2 client ID for the ETL service account (M2M)            | Created in the ZITADEL console     |
-| `ETL_CLIENT_SECRET` | OAuth2 client secret for the ETL service account (M2M)        | Created in the ZITADEL console     |
+| Variable              | Description                                                                   | Example / how to generate          |
+|-----------------------|-------------------------------------------------------------------------------|------------------------------------|
+| `API_TAG`             | Image tag for `healthai-api`                                                  | `1.2.3` or `latest`               |
+| `ETL_TAG`             | Image tag for `healthai-etl`                                                  | `1.2.3` or `latest`               |
+| `WEB_TAG`             | Image tag for `healthai-web`                                                  | `1.2.3` or `latest`               |
+| `POSTGRES_PASSWORD`   | Password for the PostgreSQL `zitadel` user                                    | `openssl rand -base64 32`          |
+| `ZITADEL_MASTERKEY`   | Master key (≥ 32 chars) used by ZITADEL to encrypt sensitive data             | `openssl rand -base64 32`          |
+| `PUBLIC_API_URL`      | Publicly reachable URL of the API (used by the browser)                       | `https://api.example.com`          |
+| `PUBLIC_ZITADEL_URL`  | Publicly reachable URL of ZITADEL (used by the browser)                       | `https://auth.example.com`         |
+| `ETL_CLIENT_ID`       | OAuth2 client ID for the ETL service account (M2M)                            | Created in the ZITADEL console     |
+| `ETL_CLIENT_SECRET`   | OAuth2 client secret for the ETL service account (M2M)                        | Created in the ZITADEL console     |
 
 ### Generate a secure master key
 
 ```bash
 openssl rand -base64 32
 ```
+
+`openssl rand -base64 32` outputs **44 printable characters** encoding 32 bytes of random data. ZITADEL requires at least 32 characters, so this output satisfies the requirement.
 
 > ⚠️ **Never commit your `.env` file.** It is already listed in `.gitignore`.
 
