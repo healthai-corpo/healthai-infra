@@ -33,7 +33,7 @@ services:
   # ZITADEL init — runs DB migrations / schema initialisation then exits
   # ----------------------------------------------------------------------------
   zitadel-init:
-    image: ghcr.io/zitadel/zitadel:latest
+    image: ghcr.io/zitadel/zitadel:v2.67.5
     restart: on-failure
     command: init
     environment:
@@ -56,7 +56,7 @@ services:
   # ZITADEL — identity & access management (users + M2M)
   # ----------------------------------------------------------------------------
   zitadel:
-    image: ghcr.io/zitadel/zitadel:latest
+    image: ghcr.io/zitadel/zitadel:v2.67.5
     restart: unless-stopped
     command: start-from-init --masterkey "${ZITADEL_MASTERKEY}" --tlsMode disabled
     environment:
@@ -81,11 +81,8 @@ services:
         condition: service_healthy
       zitadel-init:
         condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
+    # Image distroless — pas de shell ni d'outil réseau disponible pour healthcheck
+    # Les services dépendants utilisent restart: unless-stopped pour se reconnecter
 
   # ----------------------------------------------------------------------------
   # PostgreSQL — base applicative HealthAI
@@ -135,11 +132,14 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}
-      ZITADEL_ISSUER: http://zitadel:8080
-      ZITADEL_JWKS_URI: http://zitadel:8080/oauth/v2/keys
+      ZITADEL_ISSUER: http://${ZITADEL_HOST:-localhost}:8080
+      ZITADEL_JWKS_URI: http://${ZITADEL_HOST:-localhost}:8080/oauth/v2/keys
       NODE_ENV: production
       PORT: 3001
       TYPEORM_RUN_MIGRATIONS: "false"
+      API_KEY: ${API_KEY}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+      FRONTEND_CLIENT_ID: ${FRONTEND_CLIENT_ID:-healthai-admin-front}
     ports:
       - "3001:3001"
     networks:
@@ -148,7 +148,7 @@ services:
       db-migrator:
         condition: service_completed_successfully
       zitadel:
-        condition: service_healthy
+        condition: service_started
 
   # ----------------------------------------------------------------------------
   # healthai-etl — pipeline ETL + endpoint upload
@@ -170,7 +170,7 @@ services:
       db-migrator:
         condition: service_completed_successfully
       zitadel:
-        condition: service_healthy
+        condition: service_started
 
   # ----------------------------------------------------------------------------
   # healthai-admin — dashboard CRUD (interne équipe)
@@ -179,9 +179,15 @@ services:
     image: ghcr.io/healthai-corpo/healthai-admin:${ADMIN_TAG:-latest}
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3001}
-      NEXT_PUBLIC_ZITADEL_ISSUER: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
-      NEXT_PUBLIC_ETL_URL: ${PUBLIC_ETL_URL:-http://localhost:8000}
+      NEXT_PUBLIC_NESTJS_URL: ${PUBLIC_API_URL:-http://localhost:3001}
+      NEXT_PUBLIC_FASTAPI_URL: ${PUBLIC_ETL_URL:-http://localhost:8000}
+      NEXT_PUBLIC_API_KEY: ${API_KEY}
+      NEXT_PUBLIC_CLIENT_ID: ${FRONTEND_CLIENT_ID:-healthai-admin-front}
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_URL: ${PUBLIC_ADMIN_URL:-http://localhost:3000}
+      ZITADEL_ISSUER: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
+      ZITADEL_CLIENT_ID: ${ADMIN_ZITADEL_CLIENT_ID}
+      ZITADEL_CLIENT_SECRET: ${ADMIN_ZITADEL_CLIENT_SECRET}
       NODE_ENV: production
     ports:
       - "3000:3000"
@@ -191,9 +197,11 @@ services:
       - healthai-api
 
   # ----------------------------------------------------------------------------
-  # healthai-web — portail client (M3+)
+  # healthai-web — portail client (M3+, désactivé par défaut)
+  # Démarrer avec : docker compose --profile web up -d
   # ----------------------------------------------------------------------------
   healthai-web:
+    profiles: ["web"]
     image: ghcr.io/healthai-corpo/healthai-web:${WEB_TAG:-latest}
     restart: unless-stopped
     environment:
