@@ -1,0 +1,53 @@
+name: Validate
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  validate-compose:
+    name: Validate docker-compose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check compose config
+        run: docker compose -f docker-compose.yml config --quiet
+
+  validate-migrations:
+    name: Validate SQL migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: healthai
+          POSTGRES_PASSWORD: healthai_secret
+          POSTGRES_DB: healthai_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install migrate CLI
+        run: |
+          curl -L https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz | tar xz
+          sudo mv migrate /usr/local/bin/
+
+      - name: Run migrations up
+        run: |
+          migrate -path db/migrations \
+            -database "postgresql://healthai:healthai_secret@localhost:5432/healthai_db?sslmode=disable" \
+            up
+
+      - name: Run migrations down (rollback test)
+        run: |
+          migrate -path db/migrations \
+            -database "postgresql://healthai:healthai_secret@localhost:5432/healthai_db?sslmode=disable" \
+            down -all

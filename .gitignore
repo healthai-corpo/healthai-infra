@@ -1,6 +1,9 @@
 # Environment secrets — never commit the real .env
 .env
 
+# Override dev local — ne pas commiter
+docker-compose.override.yml
+
 # Editor and OS artifacts
 .DS_Store
 .idea/
