@@ -71,7 +71,7 @@ services:
       ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
       ZITADEL_EXTERNALSECURE: "false"
       ZITADEL_EXTERNALPORT: 8080
-      ZITADEL_EXTERNALHOST: ${ZITADEL_HOST:-localhost}
+      ZITADEL_EXTERNALHOST: localhost
     ports:
       - "8080:8080"
     networks:
@@ -132,11 +132,13 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}
-      ZITADEL_ISSUER: http://${ZITADEL_HOST:-localhost}:8080
-      ZITADEL_JWKS_URI: http://${ZITADEL_HOST:-localhost}:8080/oauth/v2/keys
       NODE_ENV: production
       PORT: 3001
       TYPEORM_RUN_MIGRATIONS: "false"
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600s}
+      JWT_ISSUER: ${JWT_ISSUER:-healthai-api}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-healthai-web}
       API_KEY: ${API_KEY}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       FRONTEND_CLIENT_ID: ${FRONTEND_CLIENT_ID:-healthai-admin-front}
@@ -189,6 +191,11 @@ services:
       ZITADEL_CLIENT_ID: ${ADMIN_ZITADEL_CLIENT_ID}
       ZITADEL_CLIENT_SECRET: ${ADMIN_ZITADEL_CLIENT_SECRET}
       NODE_ENV: production
+    # extra_hosts permet au container d'atteindre ZITADEL via localhost:8080
+    # host-gateway = IP du bridge Docker → ZITADEL exposé sur le host (port 8080)
+    # Le Host header HTTP reste "localhost:8080", ce que ZITADEL attend.
+    extra_hosts:
+      - "localhost:host-gateway"
     ports:
       - "3000:3000"
     networks:
