@@ -168,6 +168,8 @@ services:
       - etl_logs:/app/logs
     networks:
       - internal
+    volumes:
+      - etl_data:/data
     depends_on:
       db-migrator:
         condition: service_completed_successfully
@@ -211,6 +213,10 @@ services:
     profiles: ["web"]
     image: ghcr.io/healthai-corpo/healthai-web:${WEB_TAG:-latest}
     restart: unless-stopped
+    ports:
+      - "3000:3000"
+    networks:
+      - internal
     environment:
       NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3001}
       NEXT_PUBLIC_ZITADEL_ISSUER: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
@@ -218,7 +224,8 @@ services:
     networks:
       - internal
     depends_on:
-      - healthai-api
+      healthai-api:
+        condition: service_healthy
 
   # ----------------------------------------------------------------------------
   # Metabase — dashboards analytics connecté à healthai_db
