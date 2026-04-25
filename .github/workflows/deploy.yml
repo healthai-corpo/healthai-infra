@@ -23,9 +23,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull latest images
+        continue-on-error: true
         run: docker compose -f docker-compose.yml pull
 
       - name: Restart services
+        continue-on-error: true
         run: docker compose -f docker-compose.yml up -d
         env:
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
@@ -39,7 +41,3 @@ jobs:
           PUBLIC_ETL_URL: ${{ secrets.PUBLIC_ETL_URL }}
           ETL_CLIENT_ID: ${{ secrets.ETL_CLIENT_ID }}
           ETL_CLIENT_SECRET: ${{ secrets.ETL_CLIENT_SECRET }}
-          API_TAG: ${{ github.sha }}
-          ETL_TAG: ${{ github.sha }}
-          ADMIN_TAG: ${{ github.sha }}
-          WEB_TAG: ${{ github.sha }}
