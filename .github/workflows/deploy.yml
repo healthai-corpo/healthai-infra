@@ -25,18 +25,6 @@ jobs:
       - name: Pull latest images
         run: docker compose -f docker-compose.yml pull
 
-      - name: Run migrations
-        run: |
-          docker compose -f docker-compose.yml run --rm db-migrator
-        env:
-          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
-          POSTGRES_ZITADEL_PASSWORD: ${{ secrets.POSTGRES_ZITADEL_PASSWORD }}
-          ZITADEL_MASTERKEY: ${{ secrets.ZITADEL_MASTERKEY }}
-          ETL_CLIENT_ID: ${{ secrets.ETL_CLIENT_ID }}
-          ETL_CLIENT_SECRET: ${{ secrets.ETL_CLIENT_SECRET }}
-
       - name: Restart services
         run: docker compose -f docker-compose.yml up -d
         env:
