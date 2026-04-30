@@ -3,9 +3,8 @@
 #
 # Prérequis : avoir les repos clonés dans le même dossier parent que healthai-infra :
 #   ../healthai-api/
-#   ../healthai-admin/
+#   ../healthai-web/
 #   ../healthai-etl/
-#   ../healthai-web/       (optionnel, M3+)
 #
 # Utilisation : docker compose up --build -d
 
@@ -29,25 +28,17 @@ services:
       - ../healthai-etl/data:/app/data
       - ../healthai-etl/logs:/app/logs
 
-  healthai-admin:
+  healthai-web:
     build:
-      context: ../healthai-admin
+      context: ../healthai-web
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_USE_MOCK: "false"
         NEXT_PUBLIC_NESTJS_URL: http://localhost:3001
         NEXT_PUBLIC_API_KEY: ${NEXT_PUBLIC_API_KEY:-}
-        NEXT_PUBLIC_CLIENT_ID: ${NEXT_PUBLIC_CLIENT_ID:-healthai-admin-front}
+        NEXT_PUBLIC_CLIENT_ID: ${NEXT_PUBLIC_CLIENT_ID:-}
         NEXT_PUBLIC_FASTAPI_URL: http://localhost:8000
         NEXT_PUBLIC_METABASE_URL: http://localhost:3002
-    image: healthai-admin:local
+    image: healthai-web:local
     ports:
       - "3000:3000"
-
-  # healthai-web:
-  #   build:
-  #     context: ../healthai-web
-  #     dockerfile: Dockerfile
-  #   image: healthai-web:local
-  #   ports:
-  #     - "3001:3000"

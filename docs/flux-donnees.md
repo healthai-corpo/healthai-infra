@@ -42,7 +42,7 @@ flowchart TD
         SWAGGER["Swagger /doc"]
     end
 
-    subgraph ADMIN["🖥️ healthai-admin (Next.js · App Router)"]
+    subgraph ADMIN["🖥️ healthai-web (Next.js · App Router)"]
         DASH["Dashboard KPIs"]
         VALID["Validation anomalies\nCorrection · Approbation"]
         ETL_UI["Monitoring ETL\nLancer pipeline · Voir logs"]

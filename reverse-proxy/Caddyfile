@@ -7,12 +7,7 @@
 # Pour le dev local, utiliser http:// sans nom de domaine.
 # ==============================================================================
 
-# Dashboard admin CRUD — healthai-admin
-admin.example.com {
-    reverse_proxy healthai-admin:3000
-}
-
-# Portail client — healthai-web (M3+)
+# Frontend unifié — healthai-web
 app.example.com {
     reverse_proxy healthai-web:3000
 }

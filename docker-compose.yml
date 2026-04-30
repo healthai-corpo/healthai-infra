@@ -141,7 +141,7 @@ services:
       JWT_AUDIENCE: ${JWT_AUDIENCE:-healthai-web}
       API_KEY: ${API_KEY}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
-      FRONTEND_CLIENT_ID: ${FRONTEND_CLIENT_ID:-healthai-admin-front}
+      FRONTEND_CLIENT_ID: ${FRONTEND_CLIENT_ID}
     ports:
       - "3001:3001"
     networks:
@@ -175,16 +175,16 @@ services:
         condition: service_started
 
   # ----------------------------------------------------------------------------
-  # healthai-admin — dashboard CRUD (interne équipe)
+  # healthai-web — dashboard + portail (frontend unifié)
   # ----------------------------------------------------------------------------
-  healthai-admin:
-    image: ghcr.io/healthai-corpo/healthai-admin:${ADMIN_TAG:-latest}
+  healthai-web:
+    image: ghcr.io/healthai-corpo/healthai-web:${WEB_TAG:-latest}
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_NESTJS_URL: ${PUBLIC_API_URL:-http://localhost:3001}
       NEXT_PUBLIC_FASTAPI_URL: ${PUBLIC_ETL_URL:-http://localhost:8000}
       NEXT_PUBLIC_API_KEY: ${API_KEY}
-      NEXT_PUBLIC_CLIENT_ID: ${FRONTEND_CLIENT_ID:-healthai-admin-front}
+      NEXT_PUBLIC_CLIENT_ID: ${FRONTEND_CLIENT_ID}
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_URL: ${PUBLIC_ADMIN_URL:-http://localhost:3000}
       ZITADEL_ISSUER: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
@@ -198,25 +198,6 @@ services:
       - "localhost:host-gateway"
     ports:
       - "3000:3000"
-    networks:
-      - internal
-    depends_on:
-      - healthai-api
-
-  # ----------------------------------------------------------------------------
-  # healthai-web — portail client (M3+, désactivé par défaut)
-  # Démarrer avec : docker compose --profile web up -d
-  # ----------------------------------------------------------------------------
-  healthai-web:
-    profiles: ["web"]
-    image: ghcr.io/healthai-corpo/healthai-web:${WEB_TAG:-latest}
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3001}
-      NEXT_PUBLIC_ZITADEL_ISSUER: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
-      NODE_ENV: production
     networks:
       - internal
     depends_on:

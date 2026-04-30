@@ -11,9 +11,9 @@ Les images sont buildées dans leurs propres pipelines CI et publiées sur GitHu
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        Docker network: internal                     │
 │                                                                     │
-│  healthai-admin (:3000) ──►                                         │
+│  healthai-web   (:3000) ──►                                         │
 │                              healthai-api (:3001)  ──► db (:5432)  │
-│  healthai-web   (:3000) ──►      │                      ▲           │
+│                                  │                      ▲           │
 │                              zitadel (:8080)       db-migrator      │
 │                                  │                                  │
 │                          postgres-zitadel (internal)                │
@@ -32,8 +32,7 @@ Les images sont buildées dans leurs propres pipelines CI et publiées sur GitHu
 | `db-migrator`        | `migrate/migrate:latest`                    | —     | Migrations SQL (one-shot)          |
 | `healthai-api`       | `ghcr.io/healthai-corpo/healthai-api`       | 3001  | Backend REST API                   |
 | `healthai-etl`       | `ghcr.io/healthai-corpo/healthai-etl`       | 8000  | Pipeline ETL + endpoint upload     |
-| `healthai-admin`     | `ghcr.io/healthai-corpo/healthai-admin`     | 3000  | Dashboard CRUD (interne)           |
-| `healthai-web`       | `ghcr.io/healthai-corpo/healthai-web`       | 3000  | Portail client (M3+, profil `web`) |
+| `healthai-web`       | `ghcr.io/healthai-corpo/healthai-web`       | 3000  | Frontend unifié (dashboard + portail) |
 | `metabase`           | `metabase/metabase:latest`                  | 3002  | Dashboards analytics               |
 | `adminer`            | `adminer:latest`                            | 8081  | Inspection DB (dev/démo)           |
 | `prometheus`         | `prom/prometheus:latest`                    | 9090  | Métriques API                      |
@@ -114,7 +113,7 @@ Vérifier que tout est `healthy` / `running` :
 docker compose ps
 ```
 
-Attendre que `healthai-api` et `healthai-admin` passent en `running` (environ 60–90 secondes).
+Attendre que `healthai-api` et `healthai-web` passent en `running` (environ 60–90 secondes).
 
 ---
 
@@ -141,7 +140,7 @@ Dans la console ZITADEL :
 
 Dans le projet `HealthAI` :
 1. **Applications** → **New App**
-2. Nom : `healthai-admin-front` — Type : **Web**
+2. Nom : `Frontend` — Type : **Web**
 3. Authentication method : **PKCE**
 4. Redirect URI : `http://localhost:3000/api/auth/callback/zitadel`
 5. Post Logout URI : `http://localhost:3000`
@@ -182,7 +181,7 @@ Cet utilisateur servira à se connecter sur le dashboard admin.
 #### 4.6 — Redémarrer les services avec les nouvelles credentials
 
 ```bash
-docker compose up -d healthai-admin healthai-etl
+docker compose up -d healthai-web healthai-etl
 ```
 
 ---
@@ -240,7 +239,7 @@ Pour builder les images localement plutôt que de les puller depuis GHCR :
 # Cloner tous les repos dans le même dossier parent
 cd ..
 git clone https://github.com/HealthAI-Corpo/healthai-api.git
-git clone https://github.com/HealthAI-Corpo/healthai-admin.git
+git clone https://github.com/HealthAI-Corpo/healthai-web.git
 git clone https://github.com/HealthAI-Corpo/healthai-etl.git
 cd healthai-infra
 
@@ -337,7 +336,7 @@ docker compose up -d
 ```bash
 # Vérifier que NEXT_PUBLIC_USE_MOCK est bien absent du .env
 # ou positionné à false dans docker-compose.override.yml
-docker compose logs healthai-admin | grep MOCK
+docker compose logs healthai-web | grep MOCK
 ```
 
 **ETL : aucun fichier traité**
