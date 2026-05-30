@@ -125,6 +125,26 @@ services:
         condition: service_healthy
 
   # ----------------------------------------------------------------------------
+  # MongoDB — historique / traces des services IA (vision, workout)
+  # Pas de port publié : accessible uniquement via le réseau interne.
+  # ----------------------------------------------------------------------------
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-healthai}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
   # healthai-api — backend REST API
   # ----------------------------------------------------------------------------
   healthai-api:
@@ -163,6 +183,8 @@ services:
       ZITADEL_ISSUER: http://zitadel:8080
       ETL_CLIENT_ID: ${ETL_CLIENT_ID}
       ETL_CLIENT_SECRET: ${ETL_CLIENT_SECRET}
+    ports:
+      - "8000:8000"
     volumes:
       - etl_data:/app/data
       - etl_logs:/app/logs
@@ -223,6 +245,113 @@ services:
       - healthai-api
 
   # ----------------------------------------------------------------------------
+  # Services IA (healthai-ai) — gateway + vision + workout + Ollama
+  # Seul le gateway est exposé (8003). vision/workout/ollama restent internes.
+  # ----------------------------------------------------------------------------
+  healthai-ai-gateway:
+    image: ghcr.io/healthai-corpo/healthai-ai-gateway:${AI_GATEWAY_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      # Mode d'authentification : "jwks" en prod (validation JWT Zitadel),
+      # "dev_stub" pour court-circuiter l'auth en local sans Zitadel.
+      AUTH_MODE: ${AI_AUTH_MODE:-jwks}
+      VISION_SERVICE_URL: http://healthai-vision:8001
+      WORKOUT_SERVICE_URL: http://healthai-workout:8002
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}
+      ZITADEL_ISSUER: http://zitadel:8080
+      # Audience JWT attendue : par defaut on reutilise l'app `healthai-admin-front`
+      # pour que le meme token Zitadel donne acces au backend ET aux services IA.
+      JWT_AUDIENCE: ${AI_JWT_AUDIENCE:-${ADMIN_ZITADEL_CLIENT_ID:-}}
+      # Role projet exige (vide = juste authentification, pas de check de role).
+      # Si pas de role `ai-user` dans Zitadel, laisse vide.
+      ZITADEL_REQUIRED_ROLE: ${AI_REQUIRED_ROLE:-}
+      CORS_ORIGINS: ${FRONTEND_ORIGIN:-http://localhost:3000}
+    ports:
+      - "8003:8000"
+    networks:
+      - internal
+    depends_on:
+      db-migrator:
+        condition: service_completed_successfully
+      zitadel:
+        condition: service_started
+      healthai-vision:
+        condition: service_started
+      healthai-workout:
+        condition: service_started
+
+  healthai-vision:
+    image: ghcr.io/healthai-corpo/healthai-vision:${VISION_TAG:-latest}
+    init: true
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}
+      MONGODB_URL: mongodb://${MONGO_USER:-healthai}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin
+      MONGODB_DB_NAME: healthai_db
+      OLLAMA_BASE_URL: http://healthai-ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      OLLAMA_KEEP_ALIVE: 24h
+      HF_MODEL_NAME: ${HF_MODEL_NAME:-yolov8n.pt}
+      HF_CACHE_DIR: /app/.hf_cache
+    volumes:
+      - hf_cache:/app/.hf_cache
+    networks:
+      - internal
+    depends_on:
+      db-migrator:
+        condition: service_completed_successfully
+      mongo:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+
+  healthai-workout:
+    image: ghcr.io/healthai-corpo/healthai-workout:${WORKOUT_TAG:-latest}
+    init: true
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}
+      MONGODB_URL: mongodb://${MONGO_USER:-healthai}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin
+      MONGODB_DB_NAME: healthai_workout
+      OLLAMA_BASE_URL: http://healthai-ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+    networks:
+      - internal
+    depends_on:
+      db-migrator:
+        condition: service_completed_successfully
+      mongo:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+
+  # --- LLM centralisé (interne) ---
+  ollama:
+    image: ollama/ollama:latest
+    container_name: healthai-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_storage:/root/.ollama
+    networks:
+      - internal
+    command: ["serve"]
+
+  # --- Téléchargement automatique du modèle SLM (one-shot) ---
+  ollama-pull-model:
+    image: ollama/ollama:latest
+    container_name: healthai-ollama-pull
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    networks:
+      - internal
+    depends_on:
+      - ollama
+    volumes:
+      - ollama_storage:/root/.ollama
+    entrypoint: /bin/sh
+    command: -c "until ollama list >/dev/null 2>&1; do echo 'attente du serveur ollama...'; sleep 2; done && ollama pull ${OLLAMA_MODEL:-llama3.2:3b}"
+
+  # ----------------------------------------------------------------------------
   # Metabase — dashboards analytics connecté à healthai_db
   # ----------------------------------------------------------------------------
   metabase:
@@ -276,8 +405,11 @@ services:
 volumes:
   postgres_zitadel_data:
   postgres_app_data:
+  mongo_data:
   etl_data:
   etl_logs:
+  hf_cache:
+  ollama_storage:
 
 # ==============================================================================
 # Networks
