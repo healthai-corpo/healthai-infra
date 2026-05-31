@@ -31,3 +31,8 @@ etl.example.com {
 auth.example.com {
     reverse_proxy zitadel:8080
 }
+
+# Gateway IA — healthai-ai-gateway (vision + workout)
+ai.example.com {
+    reverse_proxy healthai-ai-gateway:8000
+}

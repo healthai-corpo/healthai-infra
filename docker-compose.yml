@@ -175,6 +175,134 @@ services:
         condition: service_started
 
   # ----------------------------------------------------------------------------
+  # MongoDB — stockage des jobs IA asynchrones et historique des consumptions
+  # Utilisé par healthai-ai-gateway, healthai-vision et healthai-workout.
+  # ----------------------------------------------------------------------------
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # Ollama — runtime LLM local (llama3.2:3b + qwen2.5:0.5b)
+  # Les modèles sont persistés dans le volume ollama_storage.
+  # En prod GPU : ajouter deploy.resources.reservations.devices.
+  # ----------------------------------------------------------------------------
+  healthai-ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_storage:/root/.ollama
+    networks:
+      - internal
+
+  # ----------------------------------------------------------------------------
+  # ollama-pull-models — télécharge les deux modèles au premier lancement
+  # Attend que le serveur Ollama réponde avant de lancer les pulls.
+  # restart: on-failure permet de retenter si le premier pull échoue.
+  # ----------------------------------------------------------------------------
+  ollama-pull-models:
+    image: ollama/ollama:latest
+    restart: on-failure
+    environment:
+      - OLLAMA_HOST=http://healthai-ollama:11434
+    networks:
+      - internal
+    depends_on:
+      - healthai-ollama
+    volumes:
+      - ollama_storage:/root/.ollama
+    entrypoint: /bin/sh
+    command: >-
+      -c "until ollama list >/dev/null 2>&1; do echo 'attente ollama...'; sleep 3; done
+      && ollama pull ${OLLAMA_MODEL_WORKOUT:-llama3.2:3b}
+      && ollama pull ${OLLAMA_MODEL_VISION:-qwen2.5:0.5b}"
+
+  # ----------------------------------------------------------------------------
+  # healthai-vision — détection YOLO + conseils nutritionnels Ollama
+  # Port 8001 non publié : accessible uniquement depuis la gateway IA.
+  # Le cache HuggingFace (modèle YOLO) est persisté dans hf_cache.
+  # ----------------------------------------------------------------------------
+  healthai-vision:
+    image: ghcr.io/healthai-corpo/healthai-vision:${AI_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}
+      MONGODB_URL: mongodb://mongo:27017
+      OLLAMA_BASE_URL: http://healthai-ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL_VISION:-qwen2.5:0.5b}
+      OLLAMA_KEEP_ALIVE: 24h
+      HF_MODEL_NAME: ${HF_MODEL_NAME:-yolov8n.pt}
+      HF_CACHE_DIR: /app/.hf_cache
+    volumes:
+      - hf_cache:/app/.hf_cache
+    networks:
+      - internal
+    depends_on:
+      db-migrator:
+        condition: service_completed_successfully
+      mongo:
+        condition: service_healthy
+      healthai-ollama:
+        condition: service_started
+
+  # ----------------------------------------------------------------------------
+  # healthai-workout — estimation calories (RandomForest) + séances Ollama
+  # Port 8002 non publié : accessible uniquement depuis la gateway IA.
+  # ----------------------------------------------------------------------------
+  healthai-workout:
+    image: ghcr.io/healthai-corpo/healthai-workout:${AI_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}
+      MONGODB_URL: mongodb://mongo:27017
+      MONGODB_DB_NAME: healthai_workout
+      OLLAMA_BASE_URL: http://healthai-ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL_WORKOUT:-llama3.2:3b}
+    networks:
+      - internal
+    depends_on:
+      db-migrator:
+        condition: service_completed_successfully
+      mongo:
+        condition: service_healthy
+      healthai-ollama:
+        condition: service_started
+
+  # ----------------------------------------------------------------------------
+  # healthai-ai-gateway — point d'entrée public de la stack IA
+  # Reverse proxy authentifié (JWT Zitadel) vers vision (:8001) et workout (:8002).
+  # En prod, Caddy fait le TLS ; la gateway n'expose que le port 8000 interne.
+  # ----------------------------------------------------------------------------
+  healthai-ai-gateway:
+    image: ghcr.io/healthai-corpo/healthai-ai-gateway:${AI_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}
+      VISION_SERVICE_URL: http://healthai-vision:8001
+      WORKOUT_SERVICE_URL: http://healthai-workout:8002
+      AUTH_MODE: jwks
+      ZITADEL_ISSUER: http://zitadel:8080
+      JWT_AUDIENCE: ${AI_JWT_AUDIENCE:-}
+      CORS_ORIGINS: ${FRONTEND_ORIGIN:-http://localhost:3000}
+    ports:
+      - "8000:8000"
+    networks:
+      - internal
+    depends_on:
+      - healthai-vision
+      - healthai-workout
+      - zitadel
+
+  # ----------------------------------------------------------------------------
   # healthai-admin — dashboard CRUD (interne équipe)
   # ----------------------------------------------------------------------------
   healthai-admin:
@@ -278,6 +406,9 @@ volumes:
   postgres_app_data:
   etl_data:
   etl_logs:
+  mongo_data:
+  ollama_storage:
+  hf_cache:
 
 # ==============================================================================
 # Networks
