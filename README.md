@@ -258,7 +258,8 @@ la stack via `docker compose up -d`.
 
 ```
 front  ──Bearer JWT──►  healthai-ai-gateway (:8003)
-                              │ valide le JWT contre ZITADEL JWKS
+                              │ valide l'access token contre ZITADEL JWKS
+                              │ recupere l'email via userinfo Zitadel
                               │ resout email → id_utilisateur (db Postgres)
                               │ injecte X-User-Id en interne
                               ├──►  healthai-vision  (port interne 8001)
@@ -278,7 +279,9 @@ dans `.env` au Client ID de la nouvelle app. Sinon, laisse vide.
 **Variables `.env` à vérifier** :
 
 ```env
-AI_AUTH_MODE=jwks                # "dev_stub" pour bypasser l'auth (dev seulement)
+AI_AUTH_MODE=jwks                # access token + userinfo (prod). Autres modes :
+                                 #   "id_token"  -> valide un ID token (transition)
+                                 #   "dev_stub"  -> bypasse l'auth (dev seulement)
 AI_JWT_AUDIENCE=                 # vide = reutilise ADMIN_ZITADEL_CLIENT_ID
 AI_REQUIRED_ROLE=                # vide = pas de check de role projet
 OLLAMA_MODEL=llama3.2:3b

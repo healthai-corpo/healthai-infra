@@ -157,8 +157,14 @@ services:
       TYPEORM_RUN_MIGRATIONS: "false"
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600s}
-      JWT_ISSUER: ${JWT_ISSUER:-healthai-api}
-      JWT_AUDIENCE: ${JWT_AUDIENCE:-healthai-web}
+      # Domaine Zitadel utilise pour recuperer les cles publiques (JWKS) cote serveur.
+      # Interne au reseau Docker : l'API joint Zitadel via http://zitadel:8080.
+      ZITADEL_DOMAIN: ${ZITADEL_DOMAIN:-http://zitadel:8080}
+      # ⚠️ Pour que la validation des tokens fonctionne, ces deux valeurs doivent
+      # correspondre au token Zitadel : JWT_ISSUER = l'URL externe de Zitadel
+      # (celle inscrite dans le claim `iss`), JWT_AUDIENCE = le Client ID du projet.
+      JWT_ISSUER: ${JWT_ISSUER:-http://localhost:8080}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-healthai-admin-front}
       API_KEY: ${API_KEY}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       FRONTEND_CLIENT_ID: ${FRONTEND_CLIENT_ID:-healthai-admin-front}
@@ -258,7 +264,13 @@ services:
       VISION_SERVICE_URL: http://healthai-vision:8001
       WORKOUT_SERVICE_URL: http://healthai-workout:8002
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}
-      ZITADEL_ISSUER: http://zitadel:8080
+      # ⚠️ ZITADEL_ISSUER sert A LA FOIS a recuperer les cles JWKS ET a comparer le
+      # claim `iss` du token. Il doit donc valoir l'URL EXTERNE de Zitadel (celle
+      # inscrite dans `iss`, = http://localhost:8080 vu ZITADEL_EXTERNALHOST=localhost),
+      # PAS le nom interne http://zitadel:8080 (sinon 401 "Invalid issuer").
+      # extra_hosts (plus bas) remappe `localhost` -> machine hote pour que le fetch
+      # JWKS sur localhost:8080 atteigne quand meme Zitadel depuis le container.
+      ZITADEL_ISSUER: ${ZITADEL_ISSUER:-http://localhost:8080}
       # Audience JWT attendue : par defaut on reutilise l'app `healthai-admin-front`
       # pour que le meme token Zitadel donne acces au backend ET aux services IA.
       JWT_AUDIENCE: ${AI_JWT_AUDIENCE:-${ADMIN_ZITADEL_CLIENT_ID:-}}
@@ -266,6 +278,11 @@ services:
       # Si pas de role `ai-user` dans Zitadel, laisse vide.
       ZITADEL_REQUIRED_ROLE: ${AI_REQUIRED_ROLE:-}
       CORS_ORIGINS: ${FRONTEND_ORIGIN:-http://localhost:3000}
+    # Permet au container d'atteindre Zitadel via localhost:8080 (host-gateway = IP
+    # du bridge Docker -> Zitadel publie sur le host). Le Host header reste
+    # "localhost:8080", ce que Zitadel attend. Meme astuce que healthai-admin.
+    extra_hosts:
+      - "localhost:host-gateway"
     ports:
       - "8003:8000"
     networks:
