@@ -2,10 +2,11 @@
 # Copier ce fichier : cp docker-compose.override.yml.example docker-compose.override.yml
 #
 # Prérequis : avoir les repos clonés dans le même dossier parent que healthai-infra :
-#   ../healthai-api/
-#   ../healthai-admin/
-#   ../healthai-etl/
-#   ../healthai-web/       (optionnel, M3+)
+#   ../healthai-api/        (NestJS backend)
+#   ../healthai-admin/      (Next.js admin dashboard)
+#   ../healthai-etl/        (FastAPI ETL)
+#   ../healthai-web/        (optionnel, M3+)
+#   ../healthai-ai/         (FastAPI gateway IA + vision + workout)
 #
 # Utilisation : docker compose up --build -d
 
@@ -51,3 +52,28 @@ services:
   #   image: healthai-web:local
   #   ports:
   #     - "3001:3000"
+
+  # ============================================================================
+  # Stack IA — build depuis ../healthai-ai/
+  # ----------------------------------------------------------------------------
+  # Important : le contexte de build est la RACINE de healthai-ai (et non
+  # un sous-dossier), car chaque Dockerfile copie aussi healthai-common (path
+  # dependency uv). Le `dockerfile` pointe vers le bon sous-dossier.
+  # ============================================================================
+  healthai-ai-gateway:
+    build:
+      context: ../healthai-ai
+      dockerfile: healthai-api/Dockerfile
+    image: healthai-ai-gateway:local
+
+  healthai-vision:
+    build:
+      context: ../healthai-ai
+      dockerfile: healthai-vision/Dockerfile
+    image: healthai-vision:local
+
+  healthai-workout:
+    build:
+      context: ../healthai-ai
+      dockerfile: healthai-workout/Dockerfile
+    image: healthai-workout:local

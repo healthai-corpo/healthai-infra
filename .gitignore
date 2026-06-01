@@ -9,3 +9,4 @@ docker-compose.override.yml
 .idea/
 *.swp
 *.swo
+.env copy
