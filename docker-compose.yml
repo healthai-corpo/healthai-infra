@@ -163,7 +163,13 @@ services:
       API_KEY: ${API_KEY}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       FRONTEND_CLIENT_ID: ${FRONTEND_CLIENT_ID:-healthai-admin-front}
-      RABBITMQ_URL: amqp://${RABBITMQ_USER:-healthai}:${RABBITMQ_PASSWORD}@rabbitmq:5672/healthai
+      # NestJS @nestjs/microservices attend des vars individuelles (pas une URL composite)
+      RABBITMQ_ENABLED: "true"
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-healthai}
+      RABBITMQ_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: healthai
     ports:
       - "3001:3001"
     networks:
