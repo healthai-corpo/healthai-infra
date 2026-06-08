@@ -157,17 +157,13 @@ services:
       TYPEORM_RUN_MIGRATIONS: "false"
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600s}
-      # Domaine Zitadel utilise pour recuperer les cles publiques (JWKS) cote serveur.
-      # Interne au reseau Docker : l'API joint Zitadel via http://zitadel:8080.
       ZITADEL_DOMAIN: ${ZITADEL_DOMAIN:-http://zitadel:8080}
-      # ⚠️ Pour que la validation des tokens fonctionne, ces deux valeurs doivent
-      # correspondre au token Zitadel : JWT_ISSUER = l'URL externe de Zitadel
-      # (celle inscrite dans le claim `iss`), JWT_AUDIENCE = le Client ID du projet.
       JWT_ISSUER: ${JWT_ISSUER:-http://localhost:8080}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-healthai-admin-front}
       API_KEY: ${API_KEY}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       FRONTEND_CLIENT_ID: ${FRONTEND_CLIENT_ID:-healthai-admin-front}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-healthai}:${RABBITMQ_PASSWORD}@rabbitmq:5672/healthai
     ports:
       - "3001:3001"
     networks:
@@ -177,6 +173,8 @@ services:
         condition: service_completed_successfully
       zitadel:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
 
   # ----------------------------------------------------------------------------
   # healthai-etl — pipeline ETL + endpoint upload
@@ -189,6 +187,7 @@ services:
       ZITADEL_ISSUER: http://zitadel:8080
       ETL_CLIENT_ID: ${ETL_CLIENT_ID}
       ETL_CLIENT_SECRET: ${ETL_CLIENT_SECRET}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-healthai}:${RABBITMQ_PASSWORD}@rabbitmq:5672/healthai
     ports:
       - "8000:8000"
     volumes:
@@ -201,6 +200,8 @@ services:
         condition: service_completed_successfully
       zitadel:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
 
   # ----------------------------------------------------------------------------
   # healthai-admin — dashboard CRUD (interne équipe)
@@ -258,29 +259,15 @@ services:
     image: ghcr.io/healthai-corpo/healthai-ai-gateway:${AI_GATEWAY_TAG:-latest}
     restart: unless-stopped
     environment:
-      # Mode d'authentification : "jwks" en prod (validation JWT Zitadel),
-      # "dev_stub" pour court-circuiter l'auth en local sans Zitadel.
       AUTH_MODE: ${AI_AUTH_MODE:-jwks}
       VISION_SERVICE_URL: http://healthai-vision:8001
       WORKOUT_SERVICE_URL: http://healthai-workout:8002
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}
-      # ⚠️ ZITADEL_ISSUER sert A LA FOIS a recuperer les cles JWKS ET a comparer le
-      # claim `iss` du token. Il doit donc valoir l'URL EXTERNE de Zitadel (celle
-      # inscrite dans `iss`, = http://localhost:8080 vu ZITADEL_EXTERNALHOST=localhost),
-      # PAS le nom interne http://zitadel:8080 (sinon 401 "Invalid issuer").
-      # extra_hosts (plus bas) remappe `localhost` -> machine hote pour que le fetch
-      # JWKS sur localhost:8080 atteigne quand meme Zitadel depuis le container.
       ZITADEL_ISSUER: ${ZITADEL_ISSUER:-http://localhost:8080}
-      # Audience JWT attendue : par defaut on reutilise l'app `healthai-admin-front`
-      # pour que le meme token Zitadel donne acces au backend ET aux services IA.
       JWT_AUDIENCE: ${AI_JWT_AUDIENCE:-${ADMIN_ZITADEL_CLIENT_ID:-}}
-      # Role projet exige (vide = juste authentification, pas de check de role).
-      # Si pas de role `ai-user` dans Zitadel, laisse vide.
       ZITADEL_REQUIRED_ROLE: ${AI_REQUIRED_ROLE:-}
       CORS_ORIGINS: ${FRONTEND_ORIGIN:-http://localhost:3000}
-    # Permet au container d'atteindre Zitadel via localhost:8080 (host-gateway = IP
-    # du bridge Docker -> Zitadel publie sur le host). Le Host header reste
-    # "localhost:8080", ce que Zitadel attend. Meme astuce que healthai-admin.
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-healthai}:${RABBITMQ_PASSWORD}@rabbitmq:5672/healthai
     extra_hosts:
       - "localhost:host-gateway"
     ports:
@@ -292,6 +279,8 @@ services:
         condition: service_completed_successfully
       zitadel:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
       healthai-vision:
         condition: service_started
       healthai-workout:
@@ -310,6 +299,7 @@ services:
       OLLAMA_KEEP_ALIVE: 24h
       HF_MODEL_NAME: ${HF_MODEL_NAME:-yolov8n.pt}
       HF_CACHE_DIR: /app/.hf_cache
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-healthai}:${RABBITMQ_PASSWORD}@rabbitmq:5672/healthai
     volumes:
       - hf_cache:/app/.hf_cache
     networks:
@@ -321,6 +311,8 @@ services:
         condition: service_healthy
       ollama:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
 
   healthai-workout:
     image: ghcr.io/healthai-corpo/healthai-workout:${WORKOUT_TAG:-latest}
@@ -332,6 +324,7 @@ services:
       MONGODB_DB_NAME: healthai_workout
       OLLAMA_BASE_URL: http://healthai-ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-healthai}:${RABBITMQ_PASSWORD}@rabbitmq:5672/healthai
     networks:
       - internal
     depends_on:
@@ -341,6 +334,8 @@ services:
         condition: service_healthy
       ollama:
         condition: service_started
+      rabbitmq:
+        condition: service_healthy
 
   # --- LLM centralisé (interne) ---
   ollama:
@@ -367,6 +362,31 @@ services:
       - ollama_storage:/root/.ollama
     entrypoint: /bin/sh
     command: -c "until ollama list >/dev/null 2>&1; do echo 'attente du serveur ollama...'; sleep 2; done && ollama pull ${OLLAMA_MODEL:-llama3.2:3b}"
+
+  # ----------------------------------------------------------------------------
+  # RabbitMQ — bus de messages entre le front et les backends (API, IA)
+  # :5672  → AMQP (services internes)
+  # :15672 → Management UI (dev / démo) — http://localhost:15672
+  # ----------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-healthai}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: healthai
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ----------------------------------------------------------------------------
   # Metabase — dashboards analytics connecté à healthai_db
@@ -427,6 +447,7 @@ volumes:
   etl_logs:
   hf_cache:
   ollama_storage:
+  rabbitmq_data:
 
 # ==============================================================================
 # Networks
