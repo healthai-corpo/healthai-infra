@@ -189,6 +189,8 @@ services:
       ZITADEL_ISSUER: http://zitadel:8080
       ETL_CLIENT_ID: ${ETL_CLIENT_ID}
       ETL_CLIENT_SECRET: ${ETL_CLIENT_SECRET}
+      ETL_DB_PASSWORD: ${ETL_DB_PASSWORD}
+      EXERCISE_DB_API_KEY: ${EXERCISE_DB_API_KEY}
     ports:
       - "8000:8000"
     volumes:
@@ -205,19 +207,22 @@ services:
   # ----------------------------------------------------------------------------
   # healthai-admin — dashboard CRUD (interne équipe)
   # ----------------------------------------------------------------------------
-  healthai-admin:
+  healthai-web:
     image: ghcr.io/healthai-corpo/healthai-admin:${ADMIN_TAG:-latest}
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_NESTJS_URL: ${PUBLIC_API_URL:-http://localhost:3001}
-      NEXT_PUBLIC_FASTAPI_URL: ${PUBLIC_ETL_URL:-http://localhost:8000}
-      NEXT_PUBLIC_API_KEY: ${API_KEY}
-      NEXT_PUBLIC_CLIENT_ID: ${FRONTEND_CLIENT_ID:-healthai-admin-front}
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_URL: ${PUBLIC_ADMIN_URL:-http://localhost:3000}
       ZITADEL_ISSUER: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
       ZITADEL_CLIENT_ID: ${ADMIN_ZITADEL_CLIENT_ID}
       ZITADEL_CLIENT_SECRET: ${ADMIN_ZITADEL_CLIENT_SECRET}
+      NEXT_PUBLIC_NESTJS_URL: ${PUBLIC_API_URL:-http://localhost:3001}
+      NEXT_PUBLIC_API_KEY: ${API_KEY}
+      NEXT_PUBLIC_CLIENT_ID: ${FRONTEND_CLIENT_ID:-healthai-admin-front}
+      NEXT_PUBLIC_FASTAPI_URL: ${PUBLIC_ETL_URL:-http://localhost:8000}
+      NEXT_PUBLIC_METABASE_URL: ${PUBLIC_METABASE_URL:-http://localhost:3002}
+      METABASE_SECRET_KEY: ${METABASE_SECRET_KEY}
+      NEXT_PUBLIC_USE_MOCK: false
       NODE_ENV: production
     # extra_hosts permet au container d'atteindre ZITADEL via localhost:8080
     # host-gateway = IP du bridge Docker → ZITADEL exposé sur le host (port 8080)
@@ -226,25 +231,6 @@ services:
       - "localhost:host-gateway"
     ports:
       - "3000:3000"
-    networks:
-      - internal
-    depends_on:
-      - healthai-api
-
-  # ----------------------------------------------------------------------------
-  # healthai-web — portail client (M3+, désactivé par défaut)
-  # Démarrer avec : docker compose --profile web up -d
-  # ----------------------------------------------------------------------------
-  healthai-web:
-    profiles: ["web"]
-    image: ghcr.io/healthai-corpo/healthai-web:${WEB_TAG:-latest}
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3001}
-      NEXT_PUBLIC_ZITADEL_ISSUER: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
-      NODE_ENV: production
     networks:
       - internal
     depends_on:
@@ -358,7 +344,7 @@ services:
     image: ollama/ollama:latest
     container_name: healthai-ollama-pull
     environment:
-      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_HOST=http://healthai-ollama:11434
     networks:
       - internal
     depends_on:
