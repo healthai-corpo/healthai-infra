@@ -300,7 +300,7 @@ services:
       db-migrator:
         condition: service_completed_successfully
       mongo:
-        condition: service_healthy
+        condition: service_started
       ollama:
         condition: service_started
 
@@ -320,7 +320,7 @@ services:
       db-migrator:
         condition: service_completed_successfully
       mongo:
-        condition: service_healthy
+        condition: service_started
       ollama:
         condition: service_started
 
