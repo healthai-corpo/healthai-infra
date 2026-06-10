@@ -1,6 +1,9 @@
 global:
     scrape_interval: 15s
 
+rule_files:
+    - "alerts.yml"
+
 scrape_configs:
     # 1. cAdvisor — métriques CPU/RAM/réseau/disque par conteneur Docker
     - job_name: "cadvisor"
@@ -17,12 +20,13 @@ scrape_configs:
       static_configs:
           - targets: ["localhost:9090"]
 
-    # --- À activer plus tard, une fois les endpoints /metrics applicatifs ajoutés ---
-    # - job_name: "healthai_api"
-    #   metrics_path: "/metrics"
-    #   static_configs:
-    #       - targets: ["healthai-api:3001"]
-    #
+    # 4. Backend NestJS — métriques HTTP (requêtes, latence, process Node)
+    - job_name: "healthai_api"
+      metrics_path: "/metrics"
+      static_configs:
+          - targets: ["healthai-api:3001"]
+
+    # --- À activer plus tard, une fois l'endpoint /metrics ajouté côté gateway IA ---
     # - job_name: "healthai_ai_gateway"
     #   metrics_path: "/metrics"
     #   static_configs:
