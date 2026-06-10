@@ -154,16 +154,23 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
       # Domaine Zitadel utilise pour recuperer les cles publiques (JWKS) cote serveur.
-      # Interne au reseau Docker : l'API joint Zitadel via http://zitadel:8080.
-      ZITADEL_DOMAIN: ${ZITADEL_DOMAIN:-http://zitadel:8080}
+      # ⚠️ Zitadel est multi-tenant et resout l'instance via le header Host : avec
+      # ZITADEL_EXTERNALHOST=localhost, seul "localhost:8080" est accepte (un appel
+      # avec Host "zitadel:8080" renvoie "instance not found"). On utilise donc
+      # l'URL externe + extra_hosts (plus bas) pour que "localhost" soit remappe
+      # vers l'hote Docker, qui publie le port 8080 de Zitadel. Meme astuce que
+      # healthai-ai-gateway et healthai-web.
+      ZITADEL_DOMAIN: ${ZITADEL_EXTERNAL_URL:-http://localhost:8080}
       # ⚠️ Pour que la validation des tokens fonctionne, ces deux valeurs doivent
       # correspondre au token Zitadel : JWT_ISSUER = l'URL externe de Zitadel
       # (celle inscrite dans le claim `iss`), JWT_AUDIENCE = le Client ID du projet.
-      ZITADEL_ISSUER: ${ZITADEL_EXTERNAL_URL}
-      ZITADEL_AUDIENCE: ${ADMIN_ZITADEL_CLIENT_ID}
+      JWT_ISSUER: ${ZITADEL_EXTERNAL_URL}
+      JWT_AUDIENCE: ${ADMIN_ZITADEL_CLIENT_ID}
       API_KEY: ${API_KEY}
       FRONTEND_ORIGIN: ${PUBLIC_ADMIN_URL}
       FRONTEND_CLIENT_ID: healthai-admin-front
+    extra_hosts:
+      - "localhost:host-gateway"
     ports:
       - "3001:3001"
     networks:
@@ -185,7 +192,7 @@ services:
       ZITADEL_ISSUER: ${ZITADEL_EXTERNAL_URL}
       ETL_CLIENT_ID: ${ETL_CLIENT_ID}
       ETL_CLIENT_SECRET: ${ETL_CLIENT_SECRET}
-      ETL_DB_PASSWORD: ${ETL_DB_PASSWORD}
+      ETL_DB_PASSWORD: ${POSTGRES_DB}
       EXERCISE_DB_API_KEY: ${EXERCISE_DB_API_KEY}
     ports:
       - "8000:8000"
