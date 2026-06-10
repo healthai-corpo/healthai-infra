@@ -41,7 +41,10 @@ Les images sont buildées dans leurs propres pipelines CI et publiées sur GitHu
 | `ollama`              | `ollama/ollama:latest`                       | —    | LLM local (interne aux services IA)       |
 | `metabase`            | `metabase/metabase:latest`                   | 3002 | Dashboards analytics                      |
 | `adminer`             | `adminer:latest`                             | 8081 | Inspection DB (dev/démo)                  |
-| `prometheus`          | `prom/prometheus:latest`                     | 9090 | Métriques API                             |
+| `prometheus`          | `prom/prometheus:latest`                     | 9090 | Métriques (cAdvisor + node-exporter)      |
+| `cadvisor`            | `gcr.io/cadvisor/cadvisor`                   | —    | Métriques CPU/RAM/réseau par conteneur    |
+| `node-exporter`       | `prom/node-exporter:latest`                  | —    | Métriques de la machine hôte              |
+| `grafana`             | `grafana/grafana:latest`                     | 3003 | Dashboards de monitoring                  |
 
 ---
 
@@ -237,6 +240,7 @@ docker compose logs healthai-etl --tail=50
 | Metabase                 | [http://localhost:3002](http://localhost:3002)           | Setup au premier accès            |
 | Adminer (DB)             | [http://localhost:8081](http://localhost:8081)           | Voir `.env` `POSTGRES_*`          |
 | Prometheus               | [http://localhost:9090](http://localhost:9090)           | —                                 |
+| Grafana                  | [http://localhost:3003](http://localhost:3003)           | Voir `.env` `GRAFANA_ADMIN_*`     |
 
 **Connexion Adminer** :
 

@@ -394,6 +394,62 @@ services:
       - internal
 
   # ----------------------------------------------------------------------------
+  # cAdvisor — métriques CPU/RAM/réseau/disque par conteneur (zéro instrumentation
+  # applicative). Scrapé par Prometheus.
+  # ----------------------------------------------------------------------------
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: healthai-cadvisor
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - internal
+
+  # ----------------------------------------------------------------------------
+  # node-exporter — métriques de la machine hôte (CPU/RAM/disque/réseau globaux)
+  # ----------------------------------------------------------------------------
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: healthai-node-exporter
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    networks:
+      - internal
+
+  # ----------------------------------------------------------------------------
+  # Grafana — dashboards visuels branchés sur Prometheus
+  # ----------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: healthai-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3003:3000"
+    networks:
+      - internal
+    depends_on:
+      - prometheus
+
+  # ----------------------------------------------------------------------------
   # Adminer — inspection DB (dev / démo)
   # ----------------------------------------------------------------------------
   adminer:
@@ -419,6 +475,7 @@ volumes:
   hf_cache:
   ollama_storage:
   prometheus_data:
+  grafana_data:
 
 # ==============================================================================
 # Networks
