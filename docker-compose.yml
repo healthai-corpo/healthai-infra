@@ -139,11 +139,6 @@ services:
       - mongo_data:/data/db
     networks:
       - internal
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   # ----------------------------------------------------------------------------
   # healthai-api — backend REST API
@@ -164,8 +159,8 @@ services:
       # ⚠️ Pour que la validation des tokens fonctionne, ces deux valeurs doivent
       # correspondre au token Zitadel : JWT_ISSUER = l'URL externe de Zitadel
       # (celle inscrite dans le claim `iss`), JWT_AUDIENCE = le Client ID du projet.
-      JWT_ISSUER: ${ZITADEL_EXTERNAL_URL}
-      JWT_AUDIENCE: ${ADMIN_ZITADEL_CLIENT_ID}
+      ZITADEL_ISSUER: ${ZITADEL_EXTERNAL_URL}
+      ZITADEL_AUDIENCE: ${ADMIN_ZITADEL_CLIENT_ID}
       API_KEY: ${API_KEY}
       FRONTEND_ORIGIN: ${PUBLIC_ADMIN_URL}
       FRONTEND_CLIENT_ID: healthai-admin-front
@@ -187,7 +182,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      ZITADEL_ISSUER: http://zitadel:8080
+      ZITADEL_ISSUER: ${ZITADEL_EXTERNAL_URL}
       ETL_CLIENT_ID: ${ETL_CLIENT_ID}
       ETL_CLIENT_SECRET: ${ETL_CLIENT_SECRET}
       ETL_DB_PASSWORD: ${ETL_DB_PASSWORD}
@@ -214,7 +209,7 @@ services:
     environment:
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_URL: ${PUBLIC_ADMIN_URL}
-      ZITADEL_ISSUER: ${PUBLIC_ZITADEL_URL}
+      ZITADEL_ISSUER: ${ZITADEL_EXTERNAL_URL}
       ZITADEL_CLIENT_ID: ${ADMIN_ZITADEL_CLIENT_ID}
       ZITADEL_CLIENT_SECRET: ${ADMIN_ZITADEL_CLIENT_SECRET}
       NEXT_PUBLIC_NESTJS_URL: ${PUBLIC_API_URL}
