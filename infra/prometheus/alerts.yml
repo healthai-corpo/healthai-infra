@@ -1,0 +1,129 @@
+groups:
+    - name: healthai_alerts
+      rules:
+          # Une cible scrapée (n'importe quel job) ne répond plus depuis 1 minute.
+          - alert: InstanceDown
+            expr: up == 0
+            for: 1m
+            labels:
+                severity: critical
+            annotations:
+                summary: "{{ $labels.job }} ({{ $labels.instance }}) est down"
+                description: "La cible {{ $labels.instance }} du job {{ $labels.job }} ne répond plus depuis plus d'1 minute."
+
+          # Taux d'erreurs 5xx élevé sur l'API CRUD.
+          - alert: HealthaiApiHighErrorRate
+            expr: |
+                sum(rate(http_requests_total{job="healthai_api", status_code=~"5.."}[5m]))
+                /
+                sum(rate(http_requests_total{job="healthai_api"}[5m]))
+                > 0.05
+            for: 2m
+            labels:
+                severity: warning
+            annotations:
+                summary: "Taux d'erreur 5xx élevé sur healthai-api"
+                description: "Plus de 5% des requêtes sur healthai-api renvoient une erreur 5xx depuis 2 minutes."
+
+          # Taux d'erreurs 5xx élevé sur la gateway IA.
+          - alert: HealthaiAiGatewayHighErrorRate
+            expr: |
+                sum(rate(http_requests_total{job="healthai_ai_gateway", status=~"5.."}[5m]))
+                /
+                sum(rate(http_requests_total{job="healthai_ai_gateway"}[5m]))
+                > 0.05
+            for: 2m
+            labels:
+                severity: warning
+            annotations:
+                summary: "Taux d'erreur 5xx élevé sur healthai-ai-gateway"
+                description: "Plus de 5% des requêtes sur healthai-ai-gateway renvoient une erreur 5xx depuis 2 minutes."
+
+          # Taux d'erreurs 5xx élevé sur l'ETL.
+          - alert: HealthaiEtlHighErrorRate
+            expr: |
+                sum(rate(http_requests_total{job="healthai_etl", status=~"5.."}[5m]))
+                /
+                sum(rate(http_requests_total{job="healthai_etl"}[5m]))
+                > 0.05
+            for: 2m
+            labels:
+                severity: warning
+            annotations:
+                summary: "Taux d'erreur 5xx élevé sur healthai-etl"
+                description: "Plus de 5% des requêtes sur healthai-etl renvoient une erreur 5xx depuis 2 minutes."
+
+    # ------------------------------------------------------------------------
+    # Alertes génériques sur TOUS les conteneurs (via cAdvisor, sans
+    # instrumentation applicative). Couvre donc aussi les conteneurs qui ne
+    # sont pas scrapés en tant que job applicatif (vision, workout, mongo,
+    # zitadel, db, etc.).
+    # ------------------------------------------------------------------------
+    - name: container_alerts
+      rules:
+          # Un conteneur n'est plus vu par cAdvisor depuis 1 minute (arrêté/crashé).
+          - alert: ContainerDown
+            expr: (time() - container_last_seen{name!=""}) > 60
+            for: 1m
+            labels:
+                severity: critical
+            annotations:
+                summary: "Le conteneur {{ $labels.name }} est arrêté"
+                description: "cAdvisor ne voit plus le conteneur {{ $labels.name }} depuis plus d'1 minute."
+
+          # Un conteneur consomme beaucoup de mémoire par rapport à sa limite
+          # (ou, si aucune limite n'est définie, par rapport à la RAM de la machine).
+          - alert: ContainerHighMemoryUsage
+            expr: |
+                (container_memory_usage_bytes{name!=""} / container_spec_memory_limit_bytes{name!=""}) > 0.9
+            for: 5m
+            labels:
+                severity: warning
+            annotations:
+                summary: "Mémoire élevée sur le conteneur {{ $labels.name }}"
+                description: "Le conteneur {{ $labels.name }} utilise plus de 90% de sa mémoire (limite ou RAM hôte) depuis 5 minutes."
+
+          # Un conteneur consomme beaucoup de CPU en continu.
+          - alert: ContainerHighCpuUsage
+            expr: |
+                sum by (name) (rate(container_cpu_usage_seconds_total{name!=""}[5m])) > 1.5
+            for: 5m
+            labels:
+                severity: warning
+            annotations:
+                summary: "CPU élevé sur le conteneur {{ $labels.name }}"
+                description: "Le conteneur {{ $labels.name }} utilise plus de 1.5 coeur CPU en moyenne depuis 5 minutes."
+
+    # ------------------------------------------------------------------------
+    # Alertes sur la machine hôte (via node-exporter).
+    # ------------------------------------------------------------------------
+    - name: host_alerts
+      rules:
+          - alert: HostOutOfMemory
+            expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 10
+            for: 5m
+            labels:
+                severity: warning
+            annotations:
+                summary: "Mémoire disponible faible sur l'hôte"
+                description: "Moins de 10% de RAM disponible sur la machine hôte depuis 5 minutes."
+
+          - alert: HostOutOfDiskSpace
+            expr: |
+                (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100 < 10
+            for: 5m
+            labels:
+                severity: warning
+            annotations:
+                summary: "Espace disque faible sur {{ $labels.mountpoint }}"
+                description: "Moins de 10% d'espace disque libre sur {{ $labels.mountpoint }} depuis 5 minutes."
+
+          - alert: HostHighCpuLoad
+            expr: |
+                100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+            for: 5m
+            labels:
+                severity: warning
+            annotations:
+                summary: "Charge CPU élevée sur l'hôte"
+                description: "Le CPU de la machine hôte est utilisé à plus de 90% depuis 5 minutes."
