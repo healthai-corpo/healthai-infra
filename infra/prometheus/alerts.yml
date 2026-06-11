@@ -24,3 +24,31 @@ groups:
             annotations:
                 summary: "Taux d'erreur 5xx élevé sur healthai-api"
                 description: "Plus de 5% des requêtes sur healthai-api renvoient une erreur 5xx depuis 2 minutes."
+
+          # Taux d'erreurs 5xx élevé sur la gateway IA.
+          - alert: HealthaiAiGatewayHighErrorRate
+            expr: |
+                sum(rate(http_requests_total{job="healthai_ai_gateway", status=~"5.."}[5m]))
+                /
+                sum(rate(http_requests_total{job="healthai_ai_gateway"}[5m]))
+                > 0.05
+            for: 2m
+            labels:
+                severity: warning
+            annotations:
+                summary: "Taux d'erreur 5xx élevé sur healthai-ai-gateway"
+                description: "Plus de 5% des requêtes sur healthai-ai-gateway renvoient une erreur 5xx depuis 2 minutes."
+
+          # Taux d'erreurs 5xx élevé sur l'ETL.
+          - alert: HealthaiEtlHighErrorRate
+            expr: |
+                sum(rate(http_requests_total{job="healthai_etl", status=~"5.."}[5m]))
+                /
+                sum(rate(http_requests_total{job="healthai_etl"}[5m]))
+                > 0.05
+            for: 2m
+            labels:
+                severity: warning
+            annotations:
+                summary: "Taux d'erreur 5xx élevé sur healthai-etl"
+                description: "Plus de 5% des requêtes sur healthai-etl renvoient une erreur 5xx depuis 2 minutes."
