@@ -1,8 +1,39 @@
 global:
-  scrape_interval: 15s
+    scrape_interval: 15s
+
+rule_files:
+    - "alerts.yml"
 
 scrape_configs:
-  - job_name: healthai_api
-    static_configs:
-      - targets: ["api:3001"]
-    metrics_path: /metrics
+    # 1. cAdvisor — métriques CPU/RAM/réseau/disque par conteneur Docker
+    - job_name: "cadvisor"
+      static_configs:
+          - targets: ["cadvisor:8080"]
+
+    # 2. node-exporter — métriques de la machine hôte
+    - job_name: "node_exporter"
+      static_configs:
+          - targets: ["node-exporter:9100"]
+
+    # 3. Prometheus lui-même
+    - job_name: "prometheus"
+      static_configs:
+          - targets: ["localhost:9090"]
+
+    # 4. Backend NestJS — métriques HTTP (requêtes, latence, process Node)
+    - job_name: "healthai_api"
+      metrics_path: "/metrics"
+      static_configs:
+          - targets: ["healthai-api:3001"]
+
+    # 5. Gateway IA (FastAPI, prometheus-fastapi-instrumentator) — métriques HTTP
+    - job_name: "healthai_ai_gateway"
+      metrics_path: "/metrics"
+      static_configs:
+          - targets: ["healthai-ai-gateway:8000"]
+
+    # 6. ETL (FastAPI, prometheus-fastapi-instrumentator) — métriques HTTP
+    - job_name: "healthai_etl"
+      metrics_path: "/metrics"
+      static_configs:
+          - targets: ["healthai-etl:8000"]

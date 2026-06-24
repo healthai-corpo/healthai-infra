@@ -23,11 +23,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull latest images
-        continue-on-error: true
         run: docker compose -f docker-compose.yml pull
 
       - name: Restart services
-        continue-on-error: true
         run: docker compose -f docker-compose.yml up -d
         env:
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}

@@ -8,6 +8,7 @@
 name: healthai
 
 services:
+  # --- Base d'authentification IAM ---
 
   # ----------------------------------------------------------------------------
   # PostgreSQL — base ZITADEL (IAM)
@@ -71,7 +72,7 @@ services:
       ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
       ZITADEL_EXTERNALSECURE: "false"
       ZITADEL_EXTERNALPORT: 8080
-      ZITADEL_EXTERNALHOST: localhost
+      ZITADEL_EXTERNALHOST: ${ZITADEL_HOST}
     ports:
       - "8080:8080"
     networks:
@@ -91,15 +92,15 @@ services:
     image: postgres:15-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-healthai}
+      POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-healthai_db}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_app_data:/var/lib/postgresql/data
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-healthai} -d ${POSTGRES_DB:-healthai_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -114,7 +115,7 @@ services:
     restart: on-failure
     command:
       - "-path=/migrations"
-      - "-database=postgresql://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}?sslmode=disable"
+      - "-database=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable"
       - "up"
     volumes:
       - ./db/migrations:/migrations:ro
@@ -123,6 +124,21 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  # ----------------------------------------------------------------------------
+  # MongoDB — historique / traces des services IA (vision, workout)
+  # Pas de port publié : accessible uniquement via le réseau interne.
+  # ----------------------------------------------------------------------------
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - internal
 
   # ----------------------------------------------------------------------------
   # healthai-api — backend REST API
@@ -136,12 +152,25 @@ services:
       PORT: 3001
       TYPEORM_RUN_MIGRATIONS: "false"
       JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600s}
-      JWT_ISSUER: ${JWT_ISSUER:-healthai-api}
-      JWT_AUDIENCE: ${JWT_AUDIENCE:-healthai-web}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      # Domaine Zitadel utilise pour recuperer les cles publiques (JWKS) cote serveur.
+      # ⚠️ Zitadel est multi-tenant et resout l'instance via le header Host : avec
+      # ZITADEL_EXTERNALHOST=localhost, seul "localhost:8080" est accepte (un appel
+      # avec Host "zitadel:8080" renvoie "instance not found"). On utilise donc
+      # l'URL externe + extra_hosts (plus bas) pour que "localhost" soit remappe
+      # vers l'hote Docker, qui publie le port 8080 de Zitadel. Meme astuce que
+      # healthai-ai-gateway et healthai-web.
+      ZITADEL_DOMAIN: ${ZITADEL_EXTERNAL_URL:-http://localhost:8080}
+      # ⚠️ Pour que la validation des tokens fonctionne, ces deux valeurs doivent
+      # correspondre au token Zitadel : JWT_ISSUER = l'URL externe de Zitadel
+      # (celle inscrite dans le claim `iss`), JWT_AUDIENCE = le Client ID du projet.
+      JWT_ISSUER: ${ZITADEL_EXTERNAL_URL}
+      JWT_AUDIENCE: ${ADMIN_ZITADEL_CLIENT_ID}
       API_KEY: ${API_KEY}
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
-      FRONTEND_CLIENT_ID: ${FRONTEND_CLIENT_ID:-healthai-admin-front}
+      FRONTEND_ORIGIN: ${PUBLIC_ADMIN_URL}
+      FRONTEND_CLIENT_ID: healthai-admin-front
+    extra_hosts:
+      - "localhost:host-gateway"
     ports:
       - "3001:3001"
     networks:
@@ -156,13 +185,17 @@ services:
   # healthai-etl — pipeline ETL + endpoint upload
   # ----------------------------------------------------------------------------
   healthai-etl:
-    image: ghcr.io/healthai-corpo/healthai-etl:${ETL_TAG:-latest}
+    image: ghcr.io/healthai-corpo/healthai-etl:${ETL_TAG}
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-healthai}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-healthai_db}
-      ZITADEL_ISSUER: http://zitadel:8080
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      ZITADEL_ISSUER: ${ZITADEL_EXTERNAL_URL}
       ETL_CLIENT_ID: ${ETL_CLIENT_ID}
       ETL_CLIENT_SECRET: ${ETL_CLIENT_SECRET}
+      ETL_DB_PASSWORD: ${POSTGRES_DB}
+      EXERCISE_DB_API_KEY: ${EXERCISE_DB_API_KEY}
+    ports:
+      - "8000:8000"
     volumes:
       - etl_data:/app/data
       - etl_logs:/app/logs
@@ -177,19 +210,22 @@ services:
   # ----------------------------------------------------------------------------
   # healthai-admin — dashboard CRUD (interne équipe)
   # ----------------------------------------------------------------------------
-  healthai-admin:
+  healthai-web:
     image: ghcr.io/healthai-corpo/healthai-admin:${ADMIN_TAG:-latest}
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_NESTJS_URL: ${PUBLIC_API_URL:-http://localhost:3001}
-      NEXT_PUBLIC_FASTAPI_URL: ${PUBLIC_ETL_URL:-http://localhost:8000}
-      NEXT_PUBLIC_API_KEY: ${API_KEY}
-      NEXT_PUBLIC_CLIENT_ID: ${FRONTEND_CLIENT_ID:-healthai-admin-front}
       AUTH_SECRET: ${AUTH_SECRET}
-      AUTH_URL: ${PUBLIC_ADMIN_URL:-http://localhost:3000}
-      ZITADEL_ISSUER: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
+      AUTH_URL: ${PUBLIC_ADMIN_URL}
+      ZITADEL_ISSUER: ${ZITADEL_EXTERNAL_URL}
       ZITADEL_CLIENT_ID: ${ADMIN_ZITADEL_CLIENT_ID}
       ZITADEL_CLIENT_SECRET: ${ADMIN_ZITADEL_CLIENT_SECRET}
+      NEXT_PUBLIC_NESTJS_URL: ${PUBLIC_API_URL}
+      NEXT_PUBLIC_API_KEY: ${API_KEY}
+      NEXT_PUBLIC_CLIENT_ID: ${FRONTEND_CLIENT_ID}
+      NEXT_PUBLIC_FASTAPI_URL: ${PUBLIC_ETL_URL}
+      NEXT_PUBLIC_METABASE_URL: ${PUBLIC_METABASE_URL}
+      METABASE_SECRET_KEY: ${METABASE_SECRET_KEY}
+      NEXT_PUBLIC_USE_MOCK: false
       NODE_ENV: production
     # extra_hosts permet au container d'atteindre ZITADEL via localhost:8080
     # host-gateway = IP du bridge Docker → ZITADEL exposé sur le host (port 8080)
@@ -204,36 +240,136 @@ services:
       - healthai-api
 
   # ----------------------------------------------------------------------------
-  # healthai-web — portail client (M3+, désactivé par défaut)
-  # Démarrer avec : docker compose --profile web up -d
+  # Services IA (healthai-ai) — gateway + vision + workout + Ollama
+  # Seul le gateway est exposé (8003). vision/workout/ollama restent internes.
   # ----------------------------------------------------------------------------
-  healthai-web:
-    profiles: ["web"]
-    image: ghcr.io/healthai-corpo/healthai-web:${WEB_TAG:-latest}
+  healthai-ai-gateway:
+    image: ghcr.io/healthai-corpo/healthai-ai-gateway:${AI_GATEWAY_TAG}
     restart: unless-stopped
-    ports:
-      - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3001}
-      NEXT_PUBLIC_ZITADEL_ISSUER: ${PUBLIC_ZITADEL_URL:-http://localhost:8080}
-      NODE_ENV: production
+      # Mode d'authentification : "jwks" en prod (validation JWT Zitadel),
+      # "dev_stub" pour court-circuiter l'auth en local sans Zitadel.
+      AUTH_MODE: ${AI_AUTH_MODE}
+      VISION_SERVICE_URL: http://healthai-vision:8001
+      WORKOUT_SERVICE_URL: http://healthai-workout:8002
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # ⚠️ ZITADEL_ISSUER sert A LA FOIS a recuperer les cles JWKS ET a comparer le
+      # claim `iss` du token. Il doit donc valoir l'URL EXTERNE de Zitadel (celle
+      # inscrite dans `iss`, = http://localhost:8080 vu ZITADEL_EXTERNALHOST=localhost),
+      # PAS le nom interne http://zitadel:8080 (sinon 401 "Invalid issuer").
+      # extra_hosts (plus bas) remappe `localhost` -> machine hote pour que le fetch
+      # JWKS sur localhost:8080 atteigne quand meme Zitadel depuis le container.
+      ZITADEL_ISSUER: ${ZITADEL_EXTERNAL_URL}
+      # Audience JWT attendue : par defaut on reutilise l'app `healthai-admin-front`
+      # pour que le meme token Zitadel donne acces au backend ET aux services IA.
+      JWT_AUDIENCE: ${ADMIN_ZITADEL_CLIENT_ID}
+      # Role projet exige (vide = juste authentification, pas de check de role).
+      # Si pas de role `ai-user` dans Zitadel, laisse vide.
+      ZITADEL_REQUIRED_ROLE: ${AI_REQUIRED_ROLE}
+      CORS_ORIGINS: ${PUBLIC_ADMIN_URL}
+    # Permet au container d'atteindre Zitadel via localhost:8080 (host-gateway = IP
+    # du bridge Docker -> Zitadel publie sur le host). Le Host header reste
+    # "localhost:8080", ce que Zitadel attend. Meme astuce que healthai-admin.
+    extra_hosts:
+      - "localhost:host-gateway"
+    ports:
+      - "8003:8000"
     networks:
       - internal
     depends_on:
-      - healthai-api
+      db-migrator:
+        condition: service_completed_successfully
+      zitadel:
+        condition: service_started
+      healthai-vision:
+        condition: service_started
+      healthai-workout:
+        condition: service_started
+
+  healthai-vision:
+    image: ghcr.io/healthai-corpo/healthai-vision:${VISION_TAG:-latest}
+    init: true
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      MONGODB_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin
+      MONGODB_DB_NAME: healthai_db
+      OLLAMA_BASE_URL: http://healthai-ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL_VISION}
+      OLLAMA_KEEP_ALIVE: 24h
+      HF_MODEL_NAME: ${HF_MODEL_NAME}
+      HF_CACHE_DIR: /app/.hf_cache
+    volumes:
+      - hf_cache:/app/.hf_cache
+    networks:
+      - internal
+    depends_on:
+      db-migrator:
+        condition: service_completed_successfully
+      mongo:
+        condition: service_started
+      ollama:
+        condition: service_started
+
+  healthai-workout:
+    image: ghcr.io/healthai-corpo/healthai-workout:${WORKOUT_TAG}
+    init: true
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      MONGODB_URL: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin
+      MONGODB_DB_NAME: healthai_workout
+      OLLAMA_BASE_URL: http://healthai-ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL_WORKOUT}
+    networks:
+      - internal
+    depends_on:
+      db-migrator:
+        condition: service_completed_successfully
+      mongo:
+        condition: service_started
+      ollama:
+        condition: service_started
+
+  # --- LLM centralisé (interne) ---
+  ollama:
+    image: ollama/ollama:latest
+    container_name: healthai-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_storage:/root/.ollama
+    networks:
+      - internal
+    command: ["serve"]
+
+  # --- Téléchargement automatique du modèle SLM (one-shot) ---
+  ollama-pull-model:
+    image: ollama/ollama:latest
+    container_name: healthai-ollama-pull
+    environment:
+      - OLLAMA_HOST=http://healthai-ollama:11434
+    networks:
+      - internal
+    depends_on:
+      - ollama
+    volumes:
+      - ollama_storage:/root/.ollama
+    entrypoint: /bin/sh
+    command: -c "until ollama list >/dev/null 2>&1; do echo 'attente du serveur ollama...'; sleep 2; done && ollama pull ${OLLAMA_MODEL_VISION} && ollama pull ${OLLAMA_MODEL_WORKOUT}"
 
   # ----------------------------------------------------------------------------
   # Metabase — dashboards analytics connecté à healthai_db
   # ----------------------------------------------------------------------------
   metabase:
     image: metabase/metabase:latest
+    init: true
     restart: unless-stopped
     environment:
       MB_DB_TYPE: postgres
       MB_DB_HOST: db
       MB_DB_PORT: 5432
-      MB_DB_DBNAME: ${POSTGRES_DB:-healthai_db}
-      MB_DB_USER: ${POSTGRES_USER:-healthai}
+      MB_DB_DBNAME: ${POSTGRES_DB}
+      MB_DB_USER: ${POSTGRES_USER}
       MB_DB_PASS: ${POSTGRES_PASSWORD}
     ports:
       - "3002:3000"
@@ -251,10 +387,70 @@ services:
     restart: unless-stopped
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    ports:
-      - "9090:9090"
+      - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
     networks:
       - internal
+
+  # ----------------------------------------------------------------------------
+  # cAdvisor — métriques CPU/RAM/réseau/disque par conteneur (zéro instrumentation
+  # applicative). Scrapé par Prometheus.
+  # ----------------------------------------------------------------------------
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: healthai-cadvisor
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - internal
+
+  # ----------------------------------------------------------------------------
+  # node-exporter — métriques de la machine hôte (CPU/RAM/disque/réseau globaux)
+  # ----------------------------------------------------------------------------
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: healthai-node-exporter
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    networks:
+      - internal
+
+  # ----------------------------------------------------------------------------
+  # Grafana — dashboards visuels branchés sur Prometheus
+  # ----------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: healthai-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Pas d'auto-inscription ni d'accès anonyme : seuls les comptes créés par
+      # l'admin (cf. MONITORING.md) peuvent se connecter.
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3003:3000"
+    networks:
+      - internal
+    depends_on:
+      - prometheus
 
   # ----------------------------------------------------------------------------
   # Adminer — inspection DB (dev / démo)
@@ -276,8 +472,13 @@ services:
 volumes:
   postgres_zitadel_data:
   postgres_app_data:
+  mongo_data:
   etl_data:
   etl_logs:
+  hf_cache:
+  ollama_storage:
+  prometheus_data:
+  grafana_data:
 
 # ==============================================================================
 # Networks
